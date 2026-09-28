@@ -262,6 +262,27 @@ describe('ControlCombobox dropdown caps', () => {
     expect(screen.getByRole('option', { name: 'Agent 15' })).toBeInTheDocument();
   });
 
+  it('clears the search when the popover closes', () => {
+    renderCapped();
+    const trigger = screen.getByRole('combobox');
+    act(() => {
+      trigger.click();
+    });
+    const search = screen.getByPlaceholderText('Search agents');
+    fireEvent.change(search, { target: { value: 'Agent 15' } });
+    expect(screen.getByRole('option', { name: 'Agent 15' })).toBeInTheDocument();
+
+    act(() => {
+      trigger.click();
+    });
+    act(() => {
+      trigger.click();
+    });
+
+    expect(screen.getByPlaceholderText('Search agents')).toHaveValue('');
+    expect(screen.getAllByRole('option')[0]).toHaveAttribute('aria-setsize', '10');
+  });
+
   it('keeps the selected option in the capped list when it ranks past the cut', () => {
     renderCapped({ selectedValue: 'agent-15' });
     openPopover();
