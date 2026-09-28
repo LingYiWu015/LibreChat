@@ -1269,6 +1269,45 @@ describe('ResumeAgentController (POST /agents/chat/resume)', () => {
       expect(mockDeleteAgentCheckpoint).toHaveBeenCalled();
     });
 
+    it('restores pre-claim provenance before aborting a resume the schedule fence rejected', async () => {
+      const job = makeScheduledJob();
+      job.metadata.userSubmittedPaths = ['/content/0/steer'];
+      job.metadata.pendingAction.payload.review_configs = [
+        { tool_call_id: 'tc1', allowed_decisions: ['approve', 'edit'] },
+      ];
+      mockGenerationJobManager.getJob.mockResolvedValue(job);
+      mockGenerationJobManager.getResumeState.mockResolvedValue({
+        aggregatedContent: [makeToolCallContent()],
+      });
+      mockFinalizeScheduleResumeClaim.mockResolvedValue(false);
+
+      const res = await post(
+        approveBody({
+          decisions: [{ tool_call_id: 'tc1', decision: 'edit', editedArguments: { q: 'edit' } }],
+        }),
+      );
+
+      expect(res.status).toBe(409);
+      expect(res.body).toMatchObject({ code: 'SCHEDULE_NO_LONGER_ACTIVE' });
+      expect(mockGenerationJobManager.approvals.resolve).toHaveBeenCalledWith(
+        CONVO_ID,
+        ACTION_ID,
+        expect.objectContaining({
+          userSubmittedPaths: expect.arrayContaining(['/content/0/tool_call/args']),
+        }),
+        1000,
+      );
+      expect(mockJobStore.updateJob).toHaveBeenCalledWith(
+        CONVO_ID,
+        { userSubmittedPaths: ['/content/0/steer'], userSubmittedMessageFieldPaths: [] },
+        1000,
+      );
+      expect(mockJobStore.updateJob.mock.invocationCallOrder[0]).toBeLessThan(
+        mockGenerationJobManager.abortJob.mock.invocationCallOrder[0],
+      );
+      expect(mockInitializeClient).not.toHaveBeenCalled();
+    });
+
     it('refuses to settle the stale resume handoff on an unconfirmed stop', async () => {
       mockGenerationJobManager.getJob.mockResolvedValue(makeScheduledJob());
       mockFinalizeScheduleResumeClaim.mockResolvedValue(false);

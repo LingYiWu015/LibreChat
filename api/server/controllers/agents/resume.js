@@ -1689,6 +1689,23 @@ const ResumeAgentController = async (req, res, next, initializeClient, addTitle)
       }
       if (!scheduleClaimCurrent) {
         await decrementPendingRequest(userId);
+        // The claim committed this decision's provenance, but the decision is never
+        // applied: restore the pre-claim paths so the abort does not mark the original
+        // model output as user-authored.
+        if (userSubmittedPaths.length > 0 || userSubmittedMessageFieldPaths.length > 0) {
+          await GenerationJobManager.getJobStore()
+            .updateJob(
+              streamId,
+              {
+                userSubmittedPaths: job.metadata.userSubmittedPaths ?? [],
+                userSubmittedMessageFieldPaths: job.metadata.userSubmittedMessageFieldPaths ?? [],
+              },
+              job.createdAt,
+            )
+            .catch((error) => {
+              logger.warn('[ResumeAgentController] Failed to restore unapplied provenance', error);
+            });
+        }
         let stopped = false;
         try {
           const abortResult = await GenerationJobManager.abortJob(streamId, {
