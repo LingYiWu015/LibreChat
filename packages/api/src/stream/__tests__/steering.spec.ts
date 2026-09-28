@@ -961,6 +961,42 @@ describe('SteeringLifecycle via GenerationJobManager.steering (in-memory)', () =
         ],
       });
     });
+
+    test('abort final events publish caller provenance for an unapplied decision', async () => {
+      const streamId = 'steer-abort-unapplied-provenance';
+      await manager.createJob(streamId, 'user-1');
+      await jobStore.updateJob(streamId, {
+        conversationId: streamId,
+        createdEventEmitted: true,
+        responseMessageId: 'response-1',
+        userMessage: { messageId: 'user-1' },
+        userSubmittedPaths: ['/content/0/steer', '/content/1/tool_call/args'],
+        userSubmittedMessageFieldPaths: [
+          { path: '/content/1/tool_call/output', field: 'decision_response' },
+        ],
+      });
+      manager.setContentParts(streamId, [
+        { type: 'text', text: 'Before the pause' },
+        { type: 'tool_call', tool_call: { id: 'call-1', args: '{"q":"model"}' } },
+      ] as unknown as Agents.MessageContentComplex[]);
+
+      const result = await manager.abortJob(streamId, {
+        provenance: { userSubmittedPaths: ['/content/0/steer'] },
+      });
+
+      const responseMessage = (
+        result.finalEvent as
+          | {
+              responseMessage?: {
+                userSubmittedPaths?: string[];
+                userSubmittedMessageFieldPaths?: unknown;
+              };
+            }
+          | undefined
+      )?.responseMessage;
+      expect(responseMessage?.userSubmittedPaths).toEqual(['/content/0/steer']);
+      expect(responseMessage).not.toHaveProperty('userSubmittedMessageFieldPaths');
+    });
   });
 
   describe('synthesizeAppliedSteerEvents (snapshot→subscribe gap)', () => {

@@ -4477,6 +4477,13 @@ class GenerationJobManagerClass {
       /** Destructive user cleanup must wait until the provider owner has
        * completed every trailing persistence task, not merely received Stop. */
       awaitProviderDrain?: boolean;
+      /** HITL provenance to publish instead of the job record's, for an abort of a
+       * claimed decision that was never applied: its paths point at content the
+       * aborted chunks do not contain. */
+      provenance?: Pick<
+        SerializableJobData,
+        'userSubmittedPaths' | 'userSubmittedMessageFieldPaths'
+      >;
     },
   ): Promise<AbortResult> {
     const observedRuntime = this.runtimeState.get(streamId);
@@ -4777,13 +4784,14 @@ class GenerationJobManagerClass {
 
       /** Final event for abort */
       const userMessageId = jobData.userMessage?.messageId;
+      const provenance = options?.provenance ?? jobData;
       const userSubmittedPaths = [
         ...new Set([
-          ...(jobData.userSubmittedPaths ?? []),
+          ...(provenance.userSubmittedPaths ?? []),
           ...getSteerUserSubmittedPaths(abortContent as TMessageContentParts[]),
         ]),
       ];
-      const userSubmittedMessageFieldPaths = jobData.userSubmittedMessageFieldPaths ?? [];
+      const userSubmittedMessageFieldPaths = provenance.userSubmittedMessageFieldPaths ?? [];
 
       const abortFinalEvent: t.ServerSentEvent = {
         final: true,

@@ -1269,7 +1269,7 @@ describe('ResumeAgentController (POST /agents/chat/resume)', () => {
       expect(mockDeleteAgentCheckpoint).toHaveBeenCalled();
     });
 
-    it('restores pre-claim provenance before aborting a resume the schedule fence rejected', async () => {
+    it('aborts a resume the schedule fence rejected with its pre-claim provenance', async () => {
       const job = makeScheduledJob();
       job.metadata.userSubmittedPaths = ['/content/0/steer'];
       job.metadata.pendingAction.payload.review_configs = [
@@ -1297,14 +1297,14 @@ describe('ResumeAgentController (POST /agents/chat/resume)', () => {
         }),
         1000,
       );
-      expect(mockJobStore.updateJob).toHaveBeenCalledWith(
+      expect(mockGenerationJobManager.abortJob).toHaveBeenCalledWith(
         CONVO_ID,
-        { userSubmittedPaths: ['/content/0/steer'], userSubmittedMessageFieldPaths: [] },
-        1000,
+        expect.objectContaining({
+          expectedCreatedAt: 1000,
+          provenance: { userSubmittedPaths: ['/content/0/steer'] },
+        }),
       );
-      expect(mockJobStore.updateJob.mock.invocationCallOrder[0]).toBeLessThan(
-        mockGenerationJobManager.abortJob.mock.invocationCallOrder[0],
-      );
+      expect(mockJobStore.updateJob).not.toHaveBeenCalled();
       expect(mockInitializeClient).not.toHaveBeenCalled();
     });
 
@@ -1406,6 +1406,7 @@ describe('ResumeAgentController (POST /agents/chat/resume)', () => {
       expect(mockGenerationJobManager.abortJob).toHaveBeenCalledWith(CONVO_ID, {
         expectedCreatedAt: 1000,
         awaitProviderDrain: true,
+        provenance: {},
       });
       expect(mockRecordScheduleOutcome).toHaveBeenCalledWith({
         scheduleId: 'schedule-1',
