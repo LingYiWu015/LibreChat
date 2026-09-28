@@ -283,10 +283,12 @@ describe('markAbortedCompactionContent', () => {
   it('marks the partial summary a stopped compaction had streamed as failed', () => {
     const parts = [partialSummary('Half a summary')];
 
-    markAbortedCompactionContent(parts, true);
+    const marked = markAbortedCompactionContent(parts, true);
 
-    expect(parts).toHaveLength(1);
-    expect(parts[0]).toMatchObject({ initiatedBy: 'user', failed: true, summarizing: true });
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toMatchObject({ initiatedBy: 'user', failed: true, summarizing: true });
+    /** The aggregated parts belong to the live run: the input is untouched. */
+    expect(parts[0]).not.toHaveProperty('initiatedBy');
   });
 
   /** A round that finished before the Stop landed is a real checkpoint: the
@@ -294,11 +296,11 @@ describe('markAbortedCompactionContent', () => {
   it('marks a summary that completed before the stop without failing it', () => {
     const parts = [completedSummary('Finished before the stop.')];
 
-    markAbortedCompactionContent(parts, true);
+    const marked = markAbortedCompactionContent(parts, true);
 
-    expect(parts).toHaveLength(1);
-    expect(parts[0]).toMatchObject({ initiatedBy: 'user' });
-    expect(parts[0]).not.toHaveProperty('failed');
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toMatchObject({ initiatedBy: 'user' });
+    expect(marked[0]).not.toHaveProperty('failed');
   });
 
   /** Every part that can carry the marker gets it: the row's identity must not
@@ -309,10 +311,10 @@ describe('markAbortedCompactionContent', () => {
       { type: ContentTypes.ERROR, error: 'Something else failed first' },
     ];
 
-    markAbortedCompactionContent(parts, true);
+    const marked = markAbortedCompactionContent(parts, true);
 
-    expect(parts[0]).toMatchObject({ initiatedBy: 'user', failed: true });
-    expect(parts[1]).toMatchObject({ initiatedBy: 'user' });
+    expect(marked[0]).toMatchObject({ initiatedBy: 'user', failed: true });
+    expect(marked[1]).toMatchObject({ initiatedBy: 'user' });
   });
 
   /** A summary placeholder with no text is not an outcome: nothing of the
@@ -321,9 +323,9 @@ describe('markAbortedCompactionContent', () => {
   it('replaces a summary placeholder that streamed nothing with the typed failure', () => {
     const parts = [emptySummaryPlaceholder()];
 
-    markAbortedCompactionContent(parts, true);
+    const marked = markAbortedCompactionContent(parts, true);
 
-    expect(parts).toEqual([
+    expect(marked).toEqual([
       {
         type: ContentTypes.ERROR,
         error: JSON.stringify({ type: ErrorTypes.COMPACTION_FAILED }),
@@ -338,9 +340,9 @@ describe('markAbortedCompactionContent', () => {
   it('records the typed failure beside an earlier checkpoint when the current round streamed nothing', () => {
     const parts = [completedSummary('An earlier checkpoint.'), emptySummaryPlaceholder()];
 
-    markAbortedCompactionContent(parts, true);
+    const marked = markAbortedCompactionContent(parts, true);
 
-    expect(parts).toEqual([
+    expect(marked).toEqual([
       expect.objectContaining({
         type: ContentTypes.SUMMARY,
         initiatedBy: 'user',
@@ -358,9 +360,9 @@ describe('markAbortedCompactionContent', () => {
   it('records the typed failure when nothing streamed before the stop', () => {
     const parts: TMessageContentParts[] = [];
 
-    markAbortedCompactionContent(parts, true);
+    const marked = markAbortedCompactionContent(parts, true);
 
-    expect(parts).toEqual([
+    expect(marked).toEqual([
       {
         type: ContentTypes.ERROR,
         error: JSON.stringify({ type: ErrorTypes.COMPACTION_FAILED }),
@@ -375,9 +377,10 @@ describe('markAbortedCompactionContent', () => {
   it('marks a non-terminal snapshot without failing or synthesizing anything', () => {
     const parts: TMessageContentParts[] = [partialSummary('Half a summary')];
 
-    markAbortedCompactionContent(parts, true, { synthesizeFailure: false });
+    const marked = markAbortedCompactionContent(parts, true, { synthesizeFailure: false });
 
-    expect(parts).toEqual([{ ...partialSummary('Half a summary'), initiatedBy: 'user' }]);
+    expect(marked).toEqual([{ ...partialSummary('Half a summary'), initiatedBy: 'user' }]);
+    expect(parts[0]).not.toHaveProperty('initiatedBy');
   });
 
   it('returns content from a turn that was not a compaction unchanged', () => {
