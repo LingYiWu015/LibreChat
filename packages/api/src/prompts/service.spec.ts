@@ -227,6 +227,29 @@ describe('createPromptService', () => {
     expect(source.createGroup).not.toHaveBeenCalled();
   });
 
+  it('rejects an invalid initial prompt before creating its group', async () => {
+    const { dependencies, source } = createDependencies();
+    const service = createPromptService(dependencies);
+
+    await expect(
+      service.createGroup({
+        group: { name: 'Group' },
+        prompt: { prompt: '  ', type: 'text' },
+        author: 'user-1',
+        authorName: 'User',
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { type: 'invalid_input' } });
+    await expect(
+      service.createGroup({
+        group: { name: 'Group' },
+        prompt: { prompt: 'Safe', type: 'invalid' as 'text' },
+        author: 'user-1',
+        authorName: 'User',
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { type: 'invalid_input' } });
+    expect(source.createGroup).not.toHaveBeenCalled();
+  });
+
   it('rejects protected creation before writing', async () => {
     const { dependencies, source } = createDependencies();
     const service = createPromptService(dependencies);
@@ -391,6 +414,19 @@ describe('createPromptService', () => {
         filters,
       }),
     ).resolves.toMatchObject({ ok: false, error: { type: 'blocked_content' } });
+    expect(store.updateGroup).not.toHaveBeenCalled();
+  });
+
+  it('returns invalid input when a metadata update fails schema validation', async () => {
+    const { dependencies, store } = createDependencies();
+    const service = createPromptService(dependencies);
+
+    await expect(
+      service.updateGroup({
+        groupId: 'group-1',
+        updates: { author: 'user-2' } as never,
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { type: 'invalid_input' } });
     expect(store.updateGroup).not.toHaveBeenCalled();
   });
 

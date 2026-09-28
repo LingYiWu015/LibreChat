@@ -22,8 +22,8 @@ import {
   projectStoredPromptGroup,
   projectStoredPromptGroups,
 } from './protection';
+import { safeValidatePromptGroupUpdate } from './schemas';
 import { selectionUnavailableReason } from './native';
-import { validatePromptGroupUpdate } from './schemas';
 
 type PromptFilters = ResolvePromptInput['filters'];
 type WithPromptFilters<T> = T & { readonly filters?: PromptFilters };
@@ -150,6 +150,11 @@ export function createPromptService(dependencies: PromptServiceDependencies): Pr
       if (input.group.name.trim().length === 0) {
         return invalidInput('Prompt and group name are required');
       }
+      const validation =
+        validateRevisionInput<Awaited<ReturnType<typeof source.createGroup>>>(input);
+      if (validation != null) {
+        return validation;
+      }
       const rejection = inspect<Awaited<ReturnType<typeof source.createGroup>>>(
         { prompt: input.prompt, group: input.group },
         input.filters,
@@ -236,7 +241,11 @@ export function createPromptService(dependencies: PromptServiceDependencies): Pr
       readonly updates: TUpdatePromptGroupSchema;
       readonly filters?: ResolvePromptInput['filters'];
     }): Promise<PromptServiceResult<PromptGroupRecord>> {
-      const updates = validatePromptGroupUpdate(input.updates);
+      const validation = safeValidatePromptGroupUpdate(input.updates);
+      if (!validation.success) {
+        return invalidInput(validation.error.issues[0]?.message ?? 'Invalid prompt group update');
+      }
+      const updates = validation.data;
       const rejection = inspect<PromptGroupRecord>(updates, input.filters);
       if (rejection != null) {
         return rejection;
