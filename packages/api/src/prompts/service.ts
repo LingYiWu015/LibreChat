@@ -22,7 +22,7 @@ import {
   projectStoredPromptGroup,
   projectStoredPromptGroups,
 } from './protection';
-import { safeValidatePromptGroupUpdate } from './schemas';
+import { safeValidatePromptGroupUpdate, safeValidatePromptPayload } from './schemas';
 import { selectionUnavailableReason } from './native';
 
 type PromptFilters = ResolvePromptInput['filters'];
@@ -91,22 +91,6 @@ function inspect<T>(
   return finding == null ? null : blockedContent(finding);
 }
 
-function validateRevisionInput<T>(input: {
-  readonly prompt?: unknown;
-}): PromptServiceResult<T> | null {
-  if (typeof input.prompt !== 'object' || input.prompt == null) {
-    return invalidInput('Prompt is required and must be an object');
-  }
-  const prompt = input.prompt as { readonly prompt?: unknown; readonly type?: unknown };
-  if (typeof prompt.prompt !== 'string' || prompt.prompt.trim().length === 0) {
-    return invalidInput('Prompt text is required and must be a non-empty string');
-  }
-  if (prompt.type !== 'text' && prompt.type !== 'chat') {
-    return invalidInput('Prompt type must be text or chat');
-  }
-  return null;
-}
-
 export function createPromptService(dependencies: PromptServiceDependencies): PromptService {
   const { source, store, grantCreatorOwnership, logger } = dependencies;
 
@@ -163,20 +147,19 @@ export function createPromptService(dependencies: PromptServiceDependencies): Pr
       ) {
         return invalidInput('Prompt and group name are required');
       }
-      const validation =
-        validateRevisionInput<Awaited<ReturnType<typeof source.createGroup>>>(input);
-      if (validation != null) {
-        return validation;
+      const promptValidation = safeValidatePromptPayload(input.prompt);
+      if (!promptValidation.success) {
+        return invalidInput(promptValidation.error.issues[0]?.message ?? 'Invalid prompt payload');
       }
       const rejection = inspect<Awaited<ReturnType<typeof source.createGroup>>>(
-        { prompt: input.prompt, group: input.group },
+        { prompt: promptValidation.data, group: input.group },
         input.filters,
       );
       if (rejection != null) {
         return rejection;
       }
       const { filters: _filters, ...createInput } = input;
-      const value = await source.createGroup(createInput);
+      const value = await source.createGroup({ ...createInput, prompt: promptValidation.data });
       try {
         await grantCreatorOwnership({ userId: input.author, groupId: value.prompt.groupId });
       } catch (error) {
@@ -191,20 +174,22 @@ export function createPromptService(dependencies: PromptServiceDependencies): Pr
     async addRevision(
       input: AddPromptRevisionInput & { readonly filters?: ResolvePromptInput['filters'] },
     ): Promise<PromptServiceResult<Awaited<ReturnType<typeof source.addRevision>>>> {
-      const validation =
-        validateRevisionInput<Awaited<ReturnType<typeof source.addRevision>>>(input);
-      if (validation != null) {
-        return validation;
+      const promptValidation = safeValidatePromptPayload(input.prompt);
+      if (!promptValidation.success) {
+        return invalidInput(promptValidation.error.issues[0]?.message ?? 'Invalid prompt payload');
       }
       const rejection = inspect<Awaited<ReturnType<typeof source.addRevision>>>(
-        { prompt: input.prompt },
+        { prompt: promptValidation.data },
         input.filters,
       );
       if (rejection != null) {
         return rejection;
       }
       const { filters: _filters, ...addInput } = input;
-      return { ok: true, value: await source.addRevision(addInput) };
+      return {
+        ok: true,
+        value: await source.addRevision({ ...addInput, prompt: promptValidation.data }),
+      };
     },
 
     async getGroup(input: {

@@ -1,6 +1,19 @@
 import { z } from 'zod';
 import { Constants } from 'librechat-data-provider';
 
+export const promptPayloadSchema = z
+  .object({
+    prompt: z.string().refine((value) => value.trim().length > 0, {
+      message: 'Prompt text is required and must be a non-empty string',
+    }),
+    type: z.enum(['text', 'chat']),
+  })
+  .strict();
+
+export function safeValidatePromptPayload(data: unknown) {
+  return promptPayloadSchema.safeParse(data);
+}
+
 /**
  * Schema for validating prompt group update payloads.
  * Only allows fields that users should be able to modify.
