@@ -227,6 +227,21 @@ describe('createPromptService', () => {
     expect(source.createGroup).not.toHaveBeenCalled();
   });
 
+  it('rejects a non-string group name as invalid input', async () => {
+    const { dependencies, source } = createDependencies();
+    const service = createPromptService(dependencies);
+
+    await expect(
+      service.createGroup({
+        group: { name: 1 as unknown as string },
+        prompt: { prompt: 'Safe', type: 'text' },
+        author: 'user-1',
+        authorName: 'User',
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { type: 'invalid_input' } });
+    expect(source.createGroup).not.toHaveBeenCalled();
+  });
+
   it('rejects invalid group metadata before creating the group', async () => {
     const { dependencies, source } = createDependencies();
     const service = createPromptService(dependencies);

@@ -147,14 +147,17 @@ export function createPromptService(dependencies: PromptServiceDependencies): Pr
     async createGroup(
       input: CreatePromptGroupInput & { readonly filters?: ResolvePromptInput['filters'] },
     ): Promise<PromptServiceResult<Awaited<ReturnType<typeof source.createGroup>>>> {
-      if (input.group.name.trim().length === 0) {
-        return invalidInput('Prompt and group name are required');
-      }
       const groupValidation = safeValidatePromptGroupUpdate(input.group);
       if (!groupValidation.success) {
         return invalidInput(
           groupValidation.error.issues[0]?.message ?? 'Invalid prompt group metadata',
         );
+      }
+      if (
+        typeof groupValidation.data.name !== 'string' ||
+        groupValidation.data.name.trim().length === 0
+      ) {
+        return invalidInput('Prompt and group name are required');
       }
       const validation =
         validateRevisionInput<Awaited<ReturnType<typeof source.createGroup>>>(input);
