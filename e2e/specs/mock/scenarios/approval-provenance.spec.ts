@@ -31,17 +31,18 @@ test.describe('Tool approval provenance', () => {
         timeout: 10000,
       });
       const card = await startApproval(page, label);
-      const conversationId = new URL(page.url()).pathname.split('/').pop() ?? '';
 
       await card.getByRole('button', { name: 'Edit' }).click();
       await card
         .getByRole('textbox', { name: 'Edit' })
         .fill(JSON.stringify({ value: editedValue }));
-      const { response } = await submitAndCapture(
+      const { body, response } = await submitAndCapture(
         page,
         card.getByRole('button', { name: 'Submit' }),
       );
       expect((await response.json()).status).toBe('resuming');
+      const conversationId = body.conversationId ?? '';
+      expect(conversationId).not.toBe('');
 
       await expectCompletedApprovalToolOutput(
         page,
