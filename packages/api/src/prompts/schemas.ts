@@ -1,7 +1,12 @@
 import { z } from 'zod';
 import { Constants } from 'librechat-data-provider';
 
-export const promptPayloadSchema = z
+export type TPromptPayloadSchema = {
+  prompt: string;
+  type: 'text' | 'chat';
+};
+
+const promptPayloadSchema: z.ZodType<TPromptPayloadSchema> = z
   .object({
     prompt: z.string().refine((value) => value.trim().length > 0, {
       message: 'Prompt text is required and must be a non-empty string',
@@ -10,7 +15,9 @@ export const promptPayloadSchema = z
   })
   .strict();
 
-export function safeValidatePromptPayload(data: unknown) {
+export function safeValidatePromptPayload(
+  data: unknown,
+): z.SafeParseReturnType<unknown, TPromptPayloadSchema> {
   return promptPayloadSchema.safeParse(data);
 }
 
