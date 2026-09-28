@@ -47,10 +47,10 @@ const {
   findAgentEventAppliedAction,
   assertCodeExecutionApprovalBinding,
   collectReachableAgents,
-  resolveChatProjectContext,
-  getChatProjectContextKey,
+  rejectChangedResumeProjectContext,
+  PROJECT_CONTEXT_CHANGED_REASON,
+  PROJECT_CONTEXT_CHANGED_RESPONSE,
   restoreScheduledTokenContext,
-  CHAT_PROJECT_CONTEXT_UNAVAILABLE,
 } = require('@librechat/api');
 const { disposeClient } = require('~/server/cleanup');
 const { decryptMetadata } = require('~/server/services/ActionService');
@@ -200,139 +200,6 @@ async function deleteFailedResumeCheckpoint(args, context) {
 }
 
 const GENERIC_RESUME_ERROR = 'Resume failed';
-async function resolveResumeProjectContext(
-  req,
-  conversationId,
-  { fresh = false, includeResources = true } = {},
-) {
-  if (
-    !fresh &&
-    Object.prototype.hasOwnProperty.call(req, 'chatProjectContext') &&
-    req.chatProjectContext !== undefined
-  ) {
-    return req.chatProjectContext;
-  }
-  let context;
-  let refreshedConversation;
-  try {
-    const input = {
-      userId: req.user.id,
-      tenantId: req.user.tenantId,
-      conversationId,
-      includeResources,
-      ...(fresh ? {} : { resolvedConversation: req.resolvedConversation }),
-    };
-    context = await resolveChatProjectContext(input, {
-      getConvo: async (userId, id) => {
-        refreshedConversation = await getConvo(userId, id);
-        return refreshedConversation;
-      },
-      getChatProject,
-      getProjectFiles,
-    });
-    if (fresh) {
-      req.chatProjectContextResourcesPromise = undefined;
-      req.chatProjectFiles = undefined;
-      req.chatProjectFilesPromise = undefined;
-      req.resolvedConversation = refreshedConversation ?? null;
-    }
-  } catch (error) {
-    if (error?.message !== CHAT_PROJECT_CONTEXT_UNAVAILABLE) {
-      throw error;
-    }
-    context = null;
-  }
-  req.chatProjectContext = context;
-  return context;
-}
-
-async function rejectChangedProjectContext({
-  req,
-  res,
-  conversationId,
-  streamId,
-  job,
-  pendingAction,
-  generationProtocolVersion,
-  checkpointerCfg,
-  checkpointGeneration,
-  fresh = false,
-}) {
-  /*
-   * The originating turn resolves guidance first and hydrates resources only after the
-   * effective File Search gate is known. Compare against that guidance-only snapshot first:
-   * denied turns avoid the resource read entirely. A mismatch means the paused key included
-   * canonical resources, so rehydrate before the final comparison. This makes the resume
-   * snapshot use the same representation selected before the pause without weakening resource
-   * identity/version checks.
-   */
-  let currentContext = await resolveResumeProjectContext(req, conversationId, {
-    fresh,
-    includeResources: false,
-  });
-  let currentKey = getChatProjectContextKey(currentContext);
-  const expectedKey = pendingAction?.projectContextKey;
-  if (typeof expectedKey === 'string' && expectedKey !== currentKey) {
-    currentContext = await resolveResumeProjectContext(req, conversationId, {
-      fresh,
-      includeResources: true,
-    });
-    currentKey = getChatProjectContextKey(currentContext);
-  }
-  const hasModelFacingProjectContext =
-    currentContext != null &&
-    (currentContext.instructions.trim() !== '' || currentContext.file_ids.length > 0);
-  if (typeof expectedKey !== 'string' && !hasModelFacingProjectContext) {
-    return false;
-  }
-  if (typeof expectedKey === 'string' && expectedKey === currentKey) {
-    return false;
-  }
-  let finalized = false;
-  try {
-    finalized =
-      (await GenerationJobManager.completeJob(
-        streamId,
-        'Project context changed before approval could be resumed',
-        job.createdAt,
-      )) === true;
-  } catch (error) {
-    /* The approval CAS already moved this generation back to `running`, and this branch
-     * stops the continuation. Swallowing a storage failure would leave that generation
-     * running with no provider owner while the caller got a non-retryable 409, so the
-     * failure goes to the resume catch, which owns the replacement-guarded
-     * running -> error transition and its checkpoint cleanup. */
-    logger.error(
-      '[ResumeAgentController] Failed to finalize stale project-context resume',
-      getSafeErrorMetadata(error),
-    );
-    throw error;
-  }
-  if (finalized) {
-    await deleteResumedGenerationCheckpoint({
-      conversationId,
-      checkpointerCfg,
-      job,
-      checkpointGeneration,
-    }).catch((error) => {
-      logger.warn(
-        '[ResumeAgentController] Failed to prune stale project-context checkpoint',
-        getSafeErrorMetadata(error),
-      );
-    });
-  }
-  sendGenerationJson(
-    res,
-    409,
-    {
-      code: 'PROJECT_CONTEXT_CHANGED',
-      error: 'Project context changed; start a new turn.',
-    },
-    generationProtocolVersion,
-  );
-  return true;
-}
-
 const resumeContentProtectionDependencies = {
   onTraversalFailure: reportLocatorTraversalFailure,
   getAgentCheckpointer,
@@ -1866,22 +1733,27 @@ const ResumeAgentController = async (req, res, next, initializeClient, addTitle)
       // wins its CAS. The approval CAS/epoch is the owner fence: a mismatch
       // terminalizes only this claimed job before initializeClient can start provider
       // or tool work.
-      const claimedProjectContextConflict = await rejectChangedProjectContext({
-        req,
-        res,
-        conversationId,
-        streamId,
-        job,
-        pendingAction,
-        generationProtocolVersion,
-        checkpointerCfg,
-        checkpointGeneration,
-        fresh: true,
-      });
+      const claimedProjectContextConflict = await rejectChangedResumeProjectContext(
+        { req, conversationId, expectedKey: pendingAction?.projectContextKey },
+        {
+          getConvo,
+          getChatProject,
+          getProjectFiles,
+          logger,
+          finalizeJob: async (reason) =>
+            (await GenerationJobManager.completeJob(streamId, reason, job.createdAt)) === true,
+          deleteCheckpoint: () =>
+            deleteResumedGenerationCheckpoint({
+              conversationId,
+              checkpointerCfg,
+              job,
+              checkpointGeneration,
+            }),
+        },
+      );
       if (claimedProjectContextConflict) {
-        await rejectPendingEventActorResume(
-          new Error('Project context changed before approval could be resumed'),
-        );
+        sendGenerationJson(res, 409, PROJECT_CONTEXT_CHANGED_RESPONSE, generationProtocolVersion);
+        await rejectPendingEventActorResume(new Error(PROJECT_CONTEXT_CHANGED_REASON));
         resumeSlotReleased = true;
         await decrementPendingRequest(userId);
         await releaseScheduleFence();
@@ -1893,7 +1765,7 @@ const ResumeAgentController = async (req, res, next, initializeClient, addTitle)
             jobCreatedAt: job.createdAt,
             status: 'interrupted',
             conversationId,
-            error: 'Project context changed before approval could be resumed',
+            error: PROJECT_CONTEXT_CHANGED_REASON,
           }).catch((error) => {
             logger.warn(
               '[ResumeAgentController] Failed to record stale project-context schedule outcome',
@@ -1949,7 +1821,7 @@ const ResumeAgentController = async (req, res, next, initializeClient, addTitle)
       // Seed the run-scoped MCP request-context store BEFORE the ACK: once `res.json`
       // finishes the response, a later `getMCPRequestContext(req, res)` (from tool loading)
       // sees `res` as ended and returns undefined, leaving the resumed run without its MCP
-      // connection store — approved MCP / OAuth-overlay tools would then run without their
+      // connection store; approved MCP / OAuth-overlay tools would then run without their
       // request-scoped connections. Pre-seeding with a null `res` + `cleanupOnResponse:false`
       // mirrors the normal stream path (request.js); torn down in the `finally` below.
       req._resumableStreamId = streamId;
@@ -2016,7 +1888,7 @@ const ResumeAgentController = async (req, res, next, initializeClient, addTitle)
       // Bind the rebuilt client to the in-flight turn's identity (no new user message).
       client.conversationId = streamId;
       // The resume operates on the SAME job (it moved it running again), so its identity is
-      // the paused job's createdAt — used by the re-pause CAS pre-check + checkpoint prune to
+      // the paused job's createdAt, used by the re-pause CAS pre-check + checkpoint prune to
       // avoid acting on a job a newer request has since replaced.
       client.jobCreatedAt = job.createdAt;
       client.checkpointNamespace = checkpointNamespace;
@@ -2124,7 +1996,7 @@ const ResumeAgentController = async (req, res, next, initializeClient, addTitle)
                 )) === true;
               if (!pausePersistenceFailureFinalized) {
                 logger.warn(
-                  `[ResumeAgentController] Skipping stale re-pause persistence failure — ${streamId} no longer owns its barrier`,
+                  `[ResumeAgentController] Skipping stale re-pause persistence failure: ${streamId} no longer owns its barrier`,
                 );
               }
             } catch (failError) {
@@ -2159,14 +2031,14 @@ const ResumeAgentController = async (req, res, next, initializeClient, addTitle)
           }
         } else {
           logger.debug(
-            `[ResumeAgentController] Skipping stale re-pause persistence — ${streamId} no longer owns its barrier`,
+            `[ResumeAgentController] Skipping stale re-pause persistence: ${streamId} no longer owns its barrier`,
           );
         }
         return;
       }
 
       // If the user aborted mid-resume, the abort route already emitted the terminal
-      // event and finalized the job — don't double-save / double-finalize here. This
+      // event and finalized the job; don't double-save / double-finalize here. This
       // continuation is nevertheless the scheduled-run owner, so it must settle the
       // run row after observing its own abort; the generic Stop route deliberately
       // delegates a running generation's settlement to that generation owner.
@@ -2247,7 +2119,7 @@ const ResumeAgentController = async (req, res, next, initializeClient, addTitle)
       }
       if (!stillLive) {
         logger.warn(
-          `[ResumeAgentController] Skipping failed-resume finalization — job ${streamId} was replaced`,
+          `[ResumeAgentController] Skipping failed-resume finalization: job ${streamId} was replaced`,
         );
       } else {
         // completeJob atomically claims running -> error and parks steers before
@@ -2296,7 +2168,7 @@ const ResumeAgentController = async (req, res, next, initializeClient, addTitle)
         // Tear down the MCP request-context store seeded before the ACK (parity with
         // request.js's finishResumableRequest). No-op if it was never seeded.
         await cleanupMCPRequestContextForReq(req);
-        // Release the concurrency slot taken above — UNLESS handleRunInterrupt already
+        // Release the concurrency slot taken above, UNLESS handleRunInterrupt already
         // released it on a re-pause (so a fast /resume isn't 429'd). On a normal finish or
         // error it didn't, so release here. A re-pause re-acquires its own slot next resume.
         if (!resumeSlotReleased && !client?.pendingRequestReleased) {

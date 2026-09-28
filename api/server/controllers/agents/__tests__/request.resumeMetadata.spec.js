@@ -289,10 +289,8 @@ jest.mock('@librechat/api', () => ({
   getFailedTurnTraceFields: (...args) => mockGetFailedTurnTraceFields(...args),
   startAgentProjectContextResolution:
     jest.requireActual('@librechat/api').startAgentProjectContextResolution,
-  assertModelBoundContent: jest.requireActual('@librechat/api').assertModelBoundContent,
-  isContentFilterError: jest.requireActual('@librechat/api').isContentFilterError,
-  CHAT_PROJECT_CONTEXT_UNAVAILABLE:
-    jest.requireActual('@librechat/api').CHAT_PROJECT_CONTEXT_UNAVAILABLE,
+  assertChatProjectInstructions: jest.requireActual('@librechat/api').assertChatProjectInstructions,
+  getChatProjectTurnFailure: jest.requireActual('@librechat/api').getChatProjectTurnFailure,
   GenerationJobManager: mockGenerationJobManager,
   getReferencedQuotes: jest.fn((quotes) => {
     if (!Array.isArray(quotes)) {
@@ -4041,77 +4039,56 @@ describe('ResumableAgentController resume metadata', () => {
       config: {},
     });
 
-    it.each([
-      ['new', undefined, undefined],
-      ['existing', 'conversation-123', 'project-1'],
-    ])(
-      'rejects a %s missing project before creating a job',
-      async (_label, conversationId, boundProjectId) => {
-        mockGetConvo.mockResolvedValue({
-          conversationId,
-          user: 'user-123',
-          tenantId: 'tenant-1',
-          ...(boundProjectId != null && { chatProjectId: boundProjectId }),
-        });
-        mockGetChatProject.mockResolvedValue(null);
-        const initializeClient = jest.fn();
-        const res = createResumableResponse();
-
-        await AgentController(
-          createProjectRequest({ conversationId }),
-          res,
-          jest.fn(),
-          initializeClient,
-          null,
-        );
-
-        expect(res.status).toHaveBeenCalledWith(404);
-        expect(res.json).toHaveBeenCalledWith(
-          expect.objectContaining({ error: 'Conversation context unavailable' }),
-        );
-        expect(mockGenerationJobManager.createJob).not.toHaveBeenCalled();
-        expect(initializeClient).not.toHaveBeenCalled();
-
-        expect(mockSaveMessage).not.toHaveBeenCalled();
-        expect(mockSaveConvo).not.toHaveBeenCalled();
-        expect(mockGenerationJobManager.releaseGeneration).toHaveBeenCalled();
-        expect(mockDecrementPendingRequest).toHaveBeenCalledWith('user-123');
-      },
-    );
-    it('rejects a project owned by another tenant before creating a job', async () => {
-      mockGetConvo.mockResolvedValue({
-        conversationId: 'conversation-123',
-        chatProjectId: 'project-1',
-        user: 'user-123',
-        tenantId: 'tenant-1',
-      });
-      mockGetChatProject.mockResolvedValue({
-        _id: 'project-1',
-        tenantId: 'tenant-2',
-        instructions: '',
-        file_ids: [],
-      });
+    it('rejects a new conversation whose requested project is missing before creating a job', async () => {
+      mockGetConvo.mockResolvedValue({ user: 'user-123', tenantId: 'tenant-1' });
+      mockGetChatProject.mockResolvedValue(null);
+      const initializeClient = jest.fn();
       const res = createResumableResponse();
 
-      await AgentController(
-        createProjectRequest({
-          conversationId: 'conversation-123',
-          clientRequestId: 'project-tenant',
-        }),
-        res,
-        jest.fn(),
-        jest.fn(),
-        null,
-      );
+      await AgentController(createProjectRequest({}), res, jest.fn(), initializeClient, null);
 
       expect(res.status).toHaveBeenCalledWith(404);
       expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({ error: 'Conversation context unavailable' }),
       );
       expect(mockGenerationJobManager.createJob).not.toHaveBeenCalled();
+      expect(initializeClient).not.toHaveBeenCalled();
+
       expect(mockSaveMessage).not.toHaveBeenCalled();
       expect(mockSaveConvo).not.toHaveBeenCalled();
+      expect(mockGenerationJobManager.releaseGeneration).toHaveBeenCalled();
+      expect(mockDecrementPendingRequest).toHaveBeenCalledWith('user-123');
     });
+
+    it.each([
+      ['missing', null],
+      [
+        'foreign-tenant',
+        { _id: 'project-1', tenantId: 'tenant-2', instructions: '', file_ids: [] },
+      ],
+    ])(
+      'continues an existing conversation without context when its stored project is %s',
+      async (_label, storedProject) => {
+        mockGetConvo.mockResolvedValue({
+          conversationId: 'conversation-123',
+          chatProjectId: 'project-1',
+          user: 'user-123',
+          tenantId: 'tenant-1',
+        });
+        mockGetChatProject.mockResolvedValue(storedProject);
+        const req = createProjectRequest({
+          conversationId: 'conversation-123',
+          clientRequestId: `project-${_label}`,
+        });
+        const res = createResumableResponse();
+
+        await AgentController(req, res, jest.fn(), jest.fn(), null);
+
+        expect(res.status).not.toHaveBeenCalledWith(404);
+        expect(req.chatProjectContext).toBeNull();
+        expect(mockGenerationJobManager.createJob).toHaveBeenCalled();
+      },
+    );
 
     it('rejects project instructions by policy before admission reaches a provider', async () => {
       mockGetConvo.mockResolvedValue({

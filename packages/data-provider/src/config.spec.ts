@@ -6,6 +6,7 @@ import {
   DEFAULT_MAX_RETAINED_TOOL_COUNT_CHARS,
   bedrockModels,
   configSchema,
+  chatProjectsConfigSchema,
   excludedKeys,
   resolveEndpointType,
   webSearchSchema,
@@ -1498,5 +1499,17 @@ describe('MCP UI refresh configuration', () => {
         interface: { mcpServers: { statusRefreshInterval: interval } },
       }).success,
     ).toBe(false);
+  });
+});
+
+describe('chat projects config', () => {
+  it('accepts the ceilings and rejects values above them', () => {
+    const atCeiling = { maxFiles: 500, maxInstructionsLength: 200000, maxDescriptionLength: 10000 };
+    expect(chatProjectsConfigSchema.parse(atCeiling)).toEqual(atCeiling);
+    expect(chatProjectsConfigSchema.safeParse({ maxFiles: 501 }).success).toBe(false);
+    expect(chatProjectsConfigSchema.safeParse({ maxInstructionsLength: 200001 }).success).toBe(
+      false,
+    );
+    expect(chatProjectsConfigSchema.safeParse({ maxDescriptionLength: 10001 }).success).toBe(false);
   });
 });

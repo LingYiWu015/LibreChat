@@ -12,6 +12,7 @@ import type {
   RunArtifactRunScope,
   PublishRunArtifactInput,
 } from '~/types/file';
+import type { IChatProjectDocument } from '~/types';
 import { tenantSafeBulkWrite } from '~/utils/tenantBulkWrite';
 import { escapeRegExp } from '~/utils/string';
 import logger from '../config/winston';
@@ -581,7 +582,7 @@ export function createFileMethods(mongoose: typeof import('mongoose')): {
         status: 1,
       });
     }
-    const files = (await query.sort({ updatedAt: -1 }).lean<ProjectFileRecordSource[]>()) ?? [];
+    const files = (await query.lean<ProjectFileRecordSource[]>()) ?? [];
     return files.map(normalizeProjectFileRecord);
   }
 
@@ -1114,7 +1115,7 @@ export function createFileMethods(mongoose: typeof import('mongoose')): {
    * Content timestamps advance only when the caller actually writes a
    * field. Clearing the upload TTL alone is bookkeeping: image reuse
    * calls this with nothing but the id on every turn, and consumers that
-   * fingerprint content by `updatedAt` — Project resume compatibility —
+   * fingerprint content by `updatedAt` (Project resume compatibility)
    * would otherwise read a new version and reject an approved turn.
    *
    * @param data - The data to update, must contain file_id
@@ -1245,13 +1246,43 @@ export function createFileMethods(mongoose: typeof import('mongoose')): {
   }
 
   /**
+   * Removes deleted file ids from the owner's Chat Projects so a project never
+   * keeps a dangling reference, bumping the revision of every project it changes.
+   */
+  async function detachFilesFromProjects(
+    files: Pick<IMongoFile, 'file_id' | 'user'>[],
+  ): Promise<void> {
+    const ChatProject = mongoose.models.ChatProject as Model<IChatProjectDocument> | undefined;
+    if (!ChatProject || files.length === 0) {
+      return;
+    }
+    const idsByUser = new Map<string, string[]>();
+    for (const file of files) {
+      const user = String(file.user);
+      idsByUser.set(user, [...(idsByUser.get(user) ?? []), file.file_id]);
+    }
+    await Promise.all(
+      [...idsByUser].map(([user, fileIds]) =>
+        ChatProject.updateMany(
+          { user, file_ids: { $in: fileIds } },
+          { $pull: { file_ids: { $in: fileIds } }, $inc: { contextRevision: 1 } },
+        ),
+      ),
+    );
+  }
+
+  /**
    * Deletes a file identified by file_id.
    * @param file_id - The unique identifier of the file to delete
    * @returns A promise that resolves to the deleted file document or null
    */
   async function deleteFile(file_id: string): Promise<IMongoFile | null> {
     const File = mongoose.models.File as Model<IMongoFile>;
-    return File.findOneAndDelete({ file_id }).lean<IMongoFile>();
+    const deleted = await File.findOneAndDelete({ file_id }).lean<IMongoFile>();
+    if (deleted) {
+      await detachFilesFromProjects([deleted]);
+    }
+    return deleted;
   }
 
   /**
@@ -1261,7 +1292,11 @@ export function createFileMethods(mongoose: typeof import('mongoose')): {
    */
   async function deleteFileByFilter(filter: FilterQuery<IMongoFile>): Promise<IMongoFile | null> {
     const File = mongoose.models.File as Model<IMongoFile>;
-    return File.findOneAndDelete(filter).lean<IMongoFile>();
+    const deleted = await File.findOneAndDelete(filter).lean<IMongoFile>();
+    if (deleted) {
+      await detachFilesFromProjects([deleted]);
+    }
+    return deleted;
   }
 
   /**
@@ -1279,7 +1314,12 @@ export function createFileMethods(mongoose: typeof import('mongoose')): {
     if (user) {
       deleteQuery = { user: user };
     }
-    return File.deleteMany(deleteQuery);
+    const doomed = await File.find(deleteQuery)
+      .select({ file_id: 1, user: 1 })
+      .lean<IMongoFile[]>();
+    const result = await File.deleteMany(deleteQuery);
+    await detachFilesFromProjects(doomed);
+    return result;
   }
 
   /**

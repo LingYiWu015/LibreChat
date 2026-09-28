@@ -117,6 +117,7 @@ import {
   createStatefulCodeEnvironmentPolicyError,
   isFatalAgentInitializationError,
 } from './errors';
+import { assertChatProjectInstructions, ChatProjectResourcesChangedError } from '../projects/turn';
 import { extractAgentContent, extractSkillContent } from '../protection/adapters/submissions';
 import { createConfiguredContentInspector, inspectContent } from '../protection/runtime';
 import { assertAgentAttachmentLimits, isModelBoundAttachmentFile } from './attachments';
@@ -357,7 +358,7 @@ async function resolveRuntimeProjectFiles({
   });
   const admittedById = new Map(context.resources.map((resource) => [resource.file_id, resource]));
   if (policyFiles.length !== files.length) {
-    throw new Error('Project resources changed during initialization');
+    throw new ChatProjectResourcesChangedError();
   }
   for (const file of policyFiles) {
     const admitted = admittedById.get(file.file_id);
@@ -368,7 +369,7 @@ async function resolveRuntimeProjectFiles({
       current.identity !== admitted.identity ||
       current.version !== admitted.version
     ) {
-      throw new Error('Project resources changed during initialization');
+      throw new ChatProjectResourcesChangedError();
     }
   }
   assertModelBoundContent({ filters, files: policyFiles });
@@ -1189,9 +1190,9 @@ export async function initializeAgent(
     : undefined;
 
   if (shouldUseChatProjectContext && runtime.chatProjectContext?.instructions.trim()) {
-    assertModelBoundContent({
+    assertChatProjectInstructions({
+      context: runtime.chatProjectContext,
       filters: appConfig?.filters,
-      agents: [{ instructions: runtime.chatProjectContext.instructions }],
     });
     appendProjectContextInstructions(agent, runtime.chatProjectContext);
   }
@@ -2072,7 +2073,7 @@ export async function initializeAgent(
       provider,
       agentId: agent.id,
       tools,
-      model: agent.model_parameters?.model ?? agent.model ?? null,
+      model: agent.model,
       tool_options: agent.tool_options,
       tool_resources: runtimeToolResources,
       requestBody,

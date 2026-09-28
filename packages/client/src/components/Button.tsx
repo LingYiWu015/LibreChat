@@ -20,6 +20,7 @@ type ButtonVariantOptions =
         | 'section-header'
         | 'section-action'
         | 'header-action'
+        | 'card'
         | null
         | undefined;
       size?:
@@ -31,6 +32,8 @@ type ButtonVariantOptions =
         | 'sm'
         | 'lg'
         | 'theme'
+        | 'row'
+        | 'tile'
         | null
         | undefined;
       shape?: 'default' | 'theme' | 'round' | null | undefined;
@@ -105,6 +108,13 @@ const buttonVariantRecipe = cva(
          */
         'header-action':
           'rounded-xl border border-border-light bg-presentation text-text-primary duration-0 hover:bg-surface-active-alt hover:text-text-primary',
+        /**
+         * A whole card or list row that is one click target, such as a project
+         * tile or a chat row. It carries no fill of its own because the card
+         * around it owns the surface; it adds the hover fill and an inset ring,
+         * and left-aligns its content, which the caller lays out.
+         */
+        card: 'justify-start whitespace-normal rounded-2xl text-left font-normal hover:bg-surface-hover focus-visible:ring-inset focus-visible:ring-offset-0',
       },
       size: {
         default: 'h-10 px-4 py-2',
@@ -120,6 +130,10 @@ const buttonVariantRecipe = cva(
          */
         'icon-theme': 'size-theme-control p-0',
         theme: 'h-theme-control gap-theme-compact px-theme-normal',
+        /** The padding of a list row that is itself the click target. */
+        row: 'h-auto gap-3 px-3.5 py-3',
+        /** The padding of a tile that reserves a corner for an overflow menu. */
+        tile: 'h-auto gap-0 p-4 pr-12',
       },
       shape: {
         default: 'rounded-lg',

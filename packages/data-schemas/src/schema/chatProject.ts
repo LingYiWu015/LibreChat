@@ -1,4 +1,8 @@
 import { Schema } from 'mongoose';
+import {
+  MAX_CHAT_PROJECT_DESCRIPTION_LENGTH_CEILING,
+  MAX_CHAT_PROJECT_INSTRUCTIONS_LENGTH_CEILING,
+} from 'librechat-data-provider';
 import type { IChatProjectDocument } from '~/types';
 
 const chatProjectSchema: Schema<IChatProjectDocument> = new Schema<IChatProjectDocument>(
@@ -14,10 +18,12 @@ const chatProjectSchema: Schema<IChatProjectDocument> = new Schema<IChatProjectD
       type: String,
       default: '',
       trim: true,
+      maxlength: MAX_CHAT_PROJECT_DESCRIPTION_LENGTH_CEILING,
     },
     instructions: {
       type: String,
       default: '',
+      maxlength: MAX_CHAT_PROJECT_INSTRUCTIONS_LENGTH_CEILING,
     },
     contextRevision: {
       type: Number,

@@ -10,7 +10,6 @@ const mockCheckBalance = jest.fn();
 const mockGetBalanceConfig = jest.fn();
 const mockGetModelMaxTokens = jest.fn();
 const mockGetTransactions = jest.fn();
-const mockResolveChatProjectContext = jest.fn();
 const mockSendResponse = jest.fn();
 const mockCreateRunBody = jest.fn();
 const mockHandleError = jest.fn();
@@ -63,7 +62,6 @@ jest.mock('@librechat/api', () => {
     checkBalance: (...args) => mockCheckBalance(...args),
     getBalanceConfig: (...args) => mockGetBalanceConfig(...args),
     getModelMaxTokens: (...args) => mockGetModelMaxTokens(...args),
-    resolveChatProjectContext: (...args) => mockResolveChatProjectContext(...args),
   };
 });
 
@@ -165,7 +163,6 @@ describe.each([
     mockGetBalanceConfig.mockReset().mockReturnValue({ enabled: false });
     mockGetModelMaxTokens.mockReset().mockReturnValue(100000);
     mockGetTransactions.mockReset().mockResolvedValue([]);
-    mockResolveChatProjectContext.mockReset().mockResolvedValue(null);
     mockCreateRunBody.mockReset().mockReturnValue({});
     mockRetrieveAssistant.mockReset().mockResolvedValue({
       id: 'asst-1',
@@ -227,6 +224,16 @@ describe.each([
       end: jest.fn(),
     };
   });
+
+  const useProject = (projectId, instructions) => {
+    req.body.endpointOption = { ...req.body.endpointOption, chatProjectId: projectId };
+    mockGetChatProject.mockResolvedValue({
+      _id: projectId,
+      instructions,
+      contextRevision: 1,
+      file_ids: [],
+    });
+  };
 
   async function expectRawFreeRejection(rawContent, expectedSource, expectedField) {
     await chatController(req, res);
@@ -315,24 +322,16 @@ describe.each([
         },
       },
     };
-    mockResolveChatProjectContext.mockResolvedValueOnce({
-      projectId: '507f1f77bcf86cd799439012',
-      contextRevision: 1,
-      instructions: 'Project guidance PRIVATE-INSTRUCTION',
-      file_ids: [],
-    });
+    useProject('507f1f77bcf86cd799439012', 'Project guidance PRIVATE-INSTRUCTION');
 
     await expectRawFreeRejection('PRIVATE-INSTRUCTION', 'agent_instruction', 'instructions');
 
-    expect(mockResolveChatProjectContext).toHaveBeenCalledTimes(1);
+    expect(mockGetChatProject).toHaveBeenCalledTimes(1);
     expect(mockGetOpenAIClient).not.toHaveBeenCalled();
     expect(mockValidateAuthor).not.toHaveBeenCalled();
   });
   it('returns not found for an unavailable Project without provider or close-handler effects', async () => {
     req.body.endpointOption = { chatProjectId: 'missing-project' };
-    mockResolveChatProjectContext.mockImplementationOnce(
-      jest.requireActual('../../../../packages/api/dist/index.cjs').resolveChatProjectContext,
-    );
     await chatController(req, res);
 
     expect(res.status).toHaveBeenCalledWith(404);
@@ -358,9 +357,6 @@ describe.each([
     req.body.endpointOption = { chatProjectId: 'project-a' };
     mockGetChatProject.mockResolvedValueOnce(project);
     mockGetFiles.mockRejectedValueOnce(new Error('unused project file lookup must not run'));
-    mockResolveChatProjectContext.mockImplementationOnce(
-      jest.requireActual('../../../../packages/api/dist/index.cjs').resolveChatProjectContext,
-    );
     mockInitThread.mockResolvedValueOnce({ thread_id: 'thread-existing' });
     mockGetOpenAIClient.mockResolvedValueOnce({
       openai: {
@@ -829,7 +825,7 @@ describe.each([
 ${projectContext.instructions}`;
     req.body.thread_id = undefined;
     req.body.conversationId = undefined;
-    mockResolveChatProjectContext.mockResolvedValueOnce(projectContext);
+    useProject(projectContext.projectId, projectContext.instructions);
     mockGetBalanceConfig.mockReturnValueOnce({ enabled: true });
     mockGetTransactions.mockResolvedValueOnce([]);
     mockGetModelMaxTokens.mockReturnValueOnce(100000);
@@ -862,7 +858,7 @@ ${projectContext.instructions}`;
     };
     req.body.endpoint = 'azureAssistants';
     req.body.thread_id = undefined;
-    mockResolveChatProjectContext.mockResolvedValueOnce(projectContext);
+    useProject(projectContext.projectId, projectContext.instructions);
     mockInitThread.mockResolvedValueOnce({ thread_id: 'thread-new' });
     mockCreateRun.mockResolvedValueOnce({ id: 'run-new', status: 'completed' });
     mockRunAssistant.mockResolvedValueOnce({
@@ -904,8 +900,8 @@ ${projectContext.instructions}`;
     req.body.conversationId = existingConversation.conversationId;
     req.body.thread_id = 'thread-existing';
     mockGetConvo.mockResolvedValueOnce(existingConversation);
-    mockResolveChatProjectContext.mockResolvedValueOnce({
-      projectId: '507f1f77bcf86cd799439014',
+    mockGetChatProject.mockResolvedValueOnce({
+      _id: '507f1f77bcf86cd799439014',
       contextRevision: 2,
       instructions: '',
       file_ids: [],

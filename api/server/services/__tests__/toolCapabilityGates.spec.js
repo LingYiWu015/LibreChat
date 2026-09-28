@@ -47,8 +47,8 @@ const CLASSIFIED = {
    *  comment. */
   'packages/api/src/agents/openai/service.ts': 3,
 
-  /** Two gates for the project file corpus — `addProjectFilesToFileSearch` and
-   *  `canUseProjectFileSearch` — each paired with the `fileSearchAvailable`
+  /** Two gates for the project file corpus (`addProjectFilesToFileSearch` and
+   *  `canUseProjectFileSearch`), each paired with the `fileSearchAvailable`
    *  grant resolved by the caller, plus two `recordCapabilityToolNames`
    *  bookkeeping reads that describe what was built. */
   'packages/api/src/agents/initialize.ts': 4,

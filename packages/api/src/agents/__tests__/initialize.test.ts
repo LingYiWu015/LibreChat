@@ -856,7 +856,11 @@ describe('initializeAgent: ChatProject context', () => {
           },
           { ...db, getProjectFiles: jest.fn().mockResolvedValue([changedFile]) },
         ),
-      ).rejects.toThrow();
+      ).rejects.toMatchObject({
+        code: 'PROJECT_RESOURCES_CHANGED',
+        status: 409,
+        retryable: true,
+      });
       expect(loadTools).not.toHaveBeenCalled();
       expect(db.updateFilesUsage).not.toHaveBeenCalled();
     },

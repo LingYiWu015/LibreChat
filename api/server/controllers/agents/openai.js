@@ -67,8 +67,7 @@ const {
   executeAgentRun,
   waitForAgentExecutionWrites,
   resolveToolRoleGrants,
-  resolveChatProjectContext,
-  CHAT_PROJECT_CONTEXT_UNAVAILABLE,
+  resolveApiConversationProject,
   resolveConversationCodeEnvironmentDecision,
   createTerminalRunErrorObserver,
 } = require('@librechat/api');
@@ -433,42 +432,31 @@ const executeOpenAIChatCompletion = async (envelope, { req, res }) => {
       // Validation may return before this promise is awaited; preserve the original
       // promise for the later await while avoiding an unhandled speculative rejection.
       agentPromise.catch(() => {});
-      let resolvedConversation;
       if (request.conversation_id != null) {
-        try {
-          resolvedConversation = await db.getConvo(principal.userId, request.conversation_id);
-          if (!resolvedConversation) {
-            return sendErrorResponse(res, 404, 'Conversation not found', 'invalid_request_error');
-          }
-          req.resolvedConversation = resolvedConversation;
-          req.chatProjectContext = await resolveChatProjectContext(
-            {
-              userId: principal.userId,
-              tenantId: principal.tenantId,
-              conversationId: request.conversation_id,
-              resolvedConversation,
-              includeResources: false,
-            },
-            {
-              getConvo: db.getConvo,
-              getChatProject: db.getChatProject,
-              getProjectFiles: db.getProjectFiles,
-            },
-          );
-        } catch (error) {
-          logger.error(
-            '[OpenAI API] Conversation context resolution failed',
-            getSafeErrorMetadata(error),
-          );
+        const project = await resolveApiConversationProject(
+          {
+            userId: principal.userId,
+            tenantId: principal.tenantId,
+            conversationId: request.conversation_id,
+          },
+          {
+            getConvo: db.getConvo,
+            getChatProject: db.getChatProject,
+            getProjectFiles: db.getProjectFiles,
+            logger,
+            logPrefix: '[OpenAI API]',
+          },
+        );
+        if (!project.ok) {
           return sendErrorResponse(
             res,
-            error?.message === CHAT_PROJECT_CONTEXT_UNAVAILABLE ? 404 : 500,
-            'Conversation context unavailable',
-            error?.message === CHAT_PROJECT_CONTEXT_UNAVAILABLE
-              ? 'invalid_request_error'
-              : 'server_error',
+            project.status,
+            project.message,
+            project.reason === 'server_error' ? 'server_error' : 'invalid_request_error',
           );
         }
+        req.resolvedConversation = project.conversation;
+        req.chatProjectContext = project.context;
       }
 
       const agent = await agentPromise;

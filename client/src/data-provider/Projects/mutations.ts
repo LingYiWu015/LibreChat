@@ -10,7 +10,7 @@ import type {
   TAssignConversationToProjectRequest,
   TAssignConversationToProjectResponse,
 } from 'librechat-data-provider';
-import type { UseMutationResult } from '@tanstack/react-query';
+import type { QueryClient, UseMutationResult } from '@tanstack/react-query';
 import { enqueue, invalidateConversationLists } from '~/utils';
 import { getSessionPrincipal } from '~/utils/session';
 import store from '~/store';
@@ -222,6 +222,16 @@ export type ProjectFileMutationVariables = {
   file_id: string;
 };
 
+const invalidateProjectFiles = (queryClient: QueryClient, projectId: string): void => {
+  queryClient.invalidateQueries({
+    queryKey: [QueryKeys.project, projectId],
+    refetchType: 'all',
+  });
+  queryClient.invalidateQueries([QueryKeys.projectFiles, projectId]);
+  queryClient.invalidateQueries([QueryKeys.projectAvailableFiles, projectId]);
+  queryClient.invalidateQueries([QueryKeys.projects]);
+};
+
 export const useAddProjectFileMutation = (): UseMutationResult<
   TChatProject,
   unknown,
@@ -233,15 +243,7 @@ export const useAddProjectFileMutation = (): UseMutationResult<
     ({ projectId, file_id }: ProjectFileMutationVariables) =>
       dataService.addProjectFile({ projectId, file_id }),
     {
-      onSuccess: (_project, variables) => {
-        queryClient.invalidateQueries({
-          queryKey: [QueryKeys.project, variables.projectId],
-          refetchType: 'all',
-        });
-        queryClient.invalidateQueries([QueryKeys.projectFiles, variables.projectId]);
-        queryClient.invalidateQueries([QueryKeys.projectAvailableFiles, variables.projectId]);
-        queryClient.invalidateQueries([QueryKeys.projects]);
-      },
+      onSuccess: (_project, variables) => invalidateProjectFiles(queryClient, variables.projectId),
     },
   );
 };
@@ -257,15 +259,7 @@ export const useRemoveProjectFileMutation = (): UseMutationResult<
     ({ projectId, file_id }: ProjectFileMutationVariables) =>
       dataService.removeProjectFile({ projectId, file_id }),
     {
-      onSuccess: (_project, variables) => {
-        queryClient.invalidateQueries({
-          queryKey: [QueryKeys.project, variables.projectId],
-          refetchType: 'all',
-        });
-        queryClient.invalidateQueries([QueryKeys.projectFiles, variables.projectId]);
-        queryClient.invalidateQueries([QueryKeys.projectAvailableFiles, variables.projectId]);
-        queryClient.invalidateQueries([QueryKeys.projects]);
-      },
+      onSuccess: (_project, variables) => invalidateProjectFiles(queryClient, variables.projectId),
     },
   );
 };

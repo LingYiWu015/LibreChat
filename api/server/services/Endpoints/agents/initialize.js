@@ -6,7 +6,7 @@ const {
   resolveConversationCodeEnvironmentDecision,
   createConcurrencyLimiter,
   loadSkillStates,
-  resolveChatProjectContext,
+  resolveInitializationProjectContext,
   initializeAgent,
   primeInvokedSkillsForProfiles,
   validateAgentModel,
@@ -578,30 +578,14 @@ const initializeClientWithProvider = async ({
   /** @type {Array<import('librechat-data-provider').TTokenUsageEvent>} */
   const usageEmitSink = [];
 
-  const requestedProjectId =
-    endpointOption.chatProjectId !== undefined
-      ? endpointOption.chatProjectId
-      : req.body?.chatProjectId;
-  const hasResolvedProjectContext = Object.prototype.hasOwnProperty.call(req, 'chatProjectContext');
-  const chatProjectContextPromise = hasResolvedProjectContext
-    ? Promise.resolve(req.chatProjectContext)
-    : requestConversationPromise.then((resolvedConversation) =>
-        resolveChatProjectContext(
-          {
-            userId: req.user.id,
-            tenantId: req.user.tenantId,
-            conversationId,
-            requestedProjectId,
-            resolvedConversation,
-            includeResources: false,
-          },
-          {
-            getConvo: db.getConvo,
-            getChatProject: db.getChatProject,
-            getProjectFiles: db.getProjectFiles,
-          },
-        ),
-      );
+  const chatProjectContextPromise = resolveInitializationProjectContext(
+    { req, endpointOption, conversationId, conversationPromise: requestConversationPromise },
+    {
+      getConvo: db.getConvo,
+      getChatProject: db.getChatProject,
+      getProjectFiles: db.getProjectFiles,
+    },
+  );
 
   const [
     memoryAvailable,

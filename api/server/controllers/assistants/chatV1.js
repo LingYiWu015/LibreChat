@@ -16,10 +16,8 @@ const {
   preflightAssistantRunContent,
   reportLocatorTraversalFailure,
   preflightAssistantUserMessageContent,
-  assertModelBoundContent,
-  resolveChatProjectContext,
-  formatChatProjectInstructions,
-  CHAT_PROJECT_CONTEXT_UNAVAILABLE,
+  resolveAssistantProjectTurn,
+  joinChatProjectInstructions,
 } = require('@librechat/api');
 const {
   Time,
@@ -277,39 +275,25 @@ const chatV1 = async (req, res) => {
         await handleError(new Error('Request closed'));
       }
     });
-    let existingConversation = req.resolvedConversation;
-    if (existingConversation === undefined) {
-      existingConversation = convoId ? await getConvo(req.user.id, convoId) : null;
-    }
-    req.resolvedConversation = existingConversation;
-    const projectContext = await resolveChatProjectContext(
+    const projectTurn = await resolveAssistantProjectTurn(
       {
         userId: req.user.id,
         tenantId: req.user.tenantId,
         conversationId: convoId,
         requestedProjectId: endpointOption?.chatProjectId ?? req.body?.chatProjectId,
-        resolvedConversation: existingConversation,
-        includeResources: false,
+        resolvedConversation: req.resolvedConversation,
+        filters: req.config?.filters,
       },
       { getConvo, getChatProject, getProjectFiles },
     );
-    req.chatProjectContext = projectContext;
-    if (projectContext?.instructions.trim()) {
-      try {
-        assertModelBoundContent({
-          filters: req.config?.filters,
-          legacyPii: req.config?.messageFilter?.pii,
-          agents: [{ instructions: projectContext.instructions }],
-        });
-      } catch (error) {
-        if (!isContentFilterError(error)) {
-          throw error;
-        }
-        contentRejected = true;
-        return res.status(error.statusCode).json(error.body);
-      }
+    if (projectTurn.rejection) {
+      contentRejected = true;
+      return res.status(projectTurn.rejection.status).json(projectTurn.rejection.body);
     }
-    const projectInstructions = formatChatProjectInstructions(projectContext);
+    const existingConversation = projectTurn.conversation;
+    const projectInstructions = projectTurn.instructions;
+    req.resolvedConversation = existingConversation;
+    req.chatProjectContext = projectTurn.context;
 
     if (convoId && !_thread_id) {
       completedRun = true;
@@ -340,9 +324,10 @@ const chatV1 = async (req, res) => {
       // TODO: make promptBuffer a config option; buffer for title generation.
       const promptBuffer = parentMessageId === Constants.NO_PARENT && !_thread_id ? 200 : 0;
       // 5 is added for labels
-      const promptText = [`${text ?? ''}${promptPrefix ?? ''}`, projectInstructions]
-        .filter(Boolean)
-        .join('\n\n');
+      const promptText = joinChatProjectInstructions(
+        `${text ?? ''}${promptPrefix ?? ''}`,
+        projectInstructions,
+      );
       let promptTokens = totalPreviousTokens + (await countTokens(promptText)) + 5 + promptBuffer;
       // Count tokens up to the current context window
       promptTokens = Math.min(promptTokens, getModelMaxTokens(model));
@@ -445,9 +430,10 @@ const chatV1 = async (req, res) => {
       }
     };
     if (projectInstructions) {
-      body.additional_instructions = [body.additional_instructions, projectInstructions]
-        .filter(Boolean)
-        .join('\n\n');
+      body.additional_instructions = joinChatProjectInstructions(
+        body.additional_instructions,
+        projectInstructions,
+      );
     }
 
     const addVisionPrompt = async () => {
@@ -579,10 +565,7 @@ const chatV1 = async (req, res) => {
       /* asynchronous */
       userMessagePromise = saveUserMessage(req, { ...requestMessage, model });
 
-      const conversationProjectId =
-        existingConversation === null
-          ? projectContext?.projectId
-          : existingConversation?.chatProjectId;
+      const conversationProjectId = projectTurn.membershipProjectId;
       conversation = {
         conversationId,
         endpoint,
@@ -807,10 +790,6 @@ const chatV1 = async (req, res) => {
       });
     }
   } catch (error) {
-    if (!res.headersSent && error?.message === CHAT_PROJECT_CONTEXT_UNAVAILABLE) {
-      contentRejected = true;
-      return res.status(404).json({ error: 'Conversation context unavailable' });
-    }
     await handleError(error);
   } finally {
     await balanceReservations.release();

@@ -138,6 +138,45 @@ describe('resolveChatProjectContext', () => {
     }
   });
 
+  it('degrades to no project context when the stored membership project is unavailable', async () => {
+    for (const storedProject of [null, { ...project, tenantId: 'tenant-b' }]) {
+      await expect(
+        resolveChatProjectContext(
+          {
+            userId: 'user-a',
+            tenantId: 'tenant-a',
+            conversationId: 'conversation-a',
+            requestedProjectId: 'project-b',
+            resolvedConversation: {
+              conversationId: 'conversation-a',
+              chatProjectId: 'project-a',
+              tenantId: 'tenant-a',
+            },
+          },
+          {
+            getConvo: jest.fn(),
+            getChatProject: jest.fn().mockResolvedValue(storedProject),
+            getProjectFiles,
+          },
+        ),
+      ).resolves.toBeNull();
+    }
+  });
+
+  it('degrades when a loaded conversation references an unavailable project', async () => {
+    const getConvo = jest
+      .fn()
+      .mockResolvedValue({ conversationId: 'conversation-a', chatProjectId: 'project-a' });
+    const getChatProject = jest.fn().mockResolvedValue(null);
+    await expect(
+      resolveChatProjectContext(
+        { userId: 'user-a', conversationId: 'conversation-a' },
+        { getConvo, getChatProject, getProjectFiles },
+      ),
+    ).resolves.toBeNull();
+    expect(getChatProject).toHaveBeenCalledWith('user-a', 'project-a');
+  });
+
   it('rejects an unauthorized requested project for a new conversation', async () => {
     await expect(
       resolveChatProjectContext(

@@ -83,11 +83,10 @@ const {
   executeAgentRun,
   waitForAgentExecutionWrites,
   resolveToolRoleGrants,
-  resolveChatProjectContext,
+  resolveApiConversationProject,
   resolveConversationCodeEnvironmentDecision,
   resolvePersistableCodeEnvironmentDecision,
   createTerminalRunErrorObserver,
-  CHAT_PROJECT_CONTEXT_UNAVAILABLE,
 } = require('@librechat/api');
 const {
   createResponsesToolEndCallback,
@@ -680,49 +679,41 @@ const executeResponse = async (envelope, { req, res }) => {
       // Validation may return before this promise is awaited; preserve the original
       // promise for the later await while avoiding an unhandled speculative rejection.
       agentPromise.catch(() => {});
-      let resolvedConversation;
       if (request.previous_response_id != null) {
-        try {
-          resolvedConversation = await db.getConvo(principal.userId, request.previous_response_id);
-          if (!resolvedConversation) {
-            return sendResponsesErrorResponse(res, 404, 'Conversation not found', 'not_found');
-          }
-          if (resolvedConversation.subagentThread != null) {
-            return sendResponsesErrorResponse(
-              res,
-              409,
-              CHILD_THREAD_READ_ONLY_ERROR,
-              'invalid_request',
-              'conversation_read_only',
-            );
-          }
-          req.resolvedConversation = resolvedConversation;
-          req.chatProjectContext = await resolveChatProjectContext(
-            {
-              userId: principal.userId,
-              tenantId: principal.tenantId,
-              conversationId: request.previous_response_id,
-              resolvedConversation,
-              includeResources: false,
-            },
-            {
-              getConvo: db.getConvo,
-              getChatProject: db.getChatProject,
-              getProjectFiles: db.getProjectFiles,
-            },
-          );
-        } catch (error) {
-          logger.error(
-            '[Responses API] Conversation context resolution failed',
-            getSafeErrorMetadata(error),
-          );
+        const project = await resolveApiConversationProject(
+          {
+            userId: principal.userId,
+            tenantId: principal.tenantId,
+            conversationId: request.previous_response_id,
+            rejectSubagentThread: true,
+          },
+          {
+            getConvo: db.getConvo,
+            getChatProject: db.getChatProject,
+            getProjectFiles: db.getProjectFiles,
+            logger,
+            logPrefix: '[Responses API]',
+          },
+        );
+        if (!project.ok && project.reason === 'read_only') {
           return sendResponsesErrorResponse(
             res,
-            error?.message === CHAT_PROJECT_CONTEXT_UNAVAILABLE ? 404 : 500,
-            'Conversation context unavailable',
-            error?.message === CHAT_PROJECT_CONTEXT_UNAVAILABLE ? 'not_found' : 'server_error',
+            409,
+            CHILD_THREAD_READ_ONLY_ERROR,
+            'invalid_request',
+            'conversation_read_only',
           );
         }
+        if (!project.ok) {
+          return sendResponsesErrorResponse(
+            res,
+            project.status,
+            project.message,
+            project.reason === 'server_error' ? 'server_error' : 'not_found',
+          );
+        }
+        req.resolvedConversation = project.conversation;
+        req.chatProjectContext = project.context;
       }
 
       const agent = await agentPromise;

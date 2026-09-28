@@ -11,7 +11,7 @@ import {
 } from 'react';
 import throttle from 'lodash/throttle';
 import { MessagesSquare } from 'lucide-react';
-import { EmptyState, Spinner } from '@librechat/client';
+import { Button, EmptyState, Spinner } from '@librechat/client';
 import { AutoSizer, CellMeasurer, CellMeasurerCache, List } from 'react-virtualized';
 import type { TConversation } from 'librechat-data-provider';
 import type { MeasuredCellParent } from '~/components/Conversations/Conversations';
@@ -96,9 +96,11 @@ const ConversationRow = memo(
           isMenuOpen && 'bg-surface-hover',
         )}
       >
-        <button
+        <Button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-3.5 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-text-primary"
+          variant="card"
+          size="row"
+          className="min-w-0 flex-1"
           onClick={() => navigateToConvo(conversation)}
         >
           <span className="flex h-10 w-10 shrink-0 items-center justify-center">
@@ -116,7 +118,7 @@ const ConversationRow = memo(
               aria-label={localize('com_ui_generating')}
             />
           ) : null}
-        </button>
+        </Button>
         {conversationId ? (
           <div className="pr-2">
             <ProjectChatOptions

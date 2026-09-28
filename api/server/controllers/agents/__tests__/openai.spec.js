@@ -177,9 +177,10 @@ jest.mock('@librechat/agents', () => ({
 jest.mock('@librechat/api', () => ({
   /* Provisioning moved into this package; the controllers build the callback from it. */
   createProvisionFilesCallback: () => async () => {},
-  CHAT_PROJECT_CONTEXT_UNAVAILABLE: 'Project context unavailable',
   createAgentExecutionContext: (context) => context,
-  resolveChatProjectContext: jest.fn().mockResolvedValue(null),
+  resolveApiConversationProject: jest.fn((...args) =>
+    jest.requireActual('@librechat/api').resolveApiConversationProject(...args),
+  ),
   /** Grants both by default; the capability set is what these specs vary. */
   resolveToolRoleGrants: jest.fn(async () => ({
     runCode: true,
@@ -1326,10 +1327,10 @@ describe('OpenAIChatCompletionController', () => {
             resolveAgent = resolve;
           }),
       );
-      api.resolveChatProjectContext.mockImplementationOnce(async () => {
+      api.resolveApiConversationProject.mockImplementationOnce(async (...args) => {
         expect(models.getAgent).toHaveBeenCalledWith({ id: 'agent-123' });
         resolveAgent({ id: 'agent-123', name: 'Test Agent' });
-        return null;
+        return jest.requireActual('@librechat/api').resolveApiConversationProject(...args);
       });
       api.validateRequest.mockReturnValueOnce({
         request: {
@@ -1359,11 +1360,13 @@ describe('OpenAIChatCompletionController', () => {
           conversation_id: 'convo-abc',
         },
       });
-      models.getConvo.mockResolvedValueOnce({ conversationId: 'convo-abc', user: 'user-123' });
       models.getAgent.mockRejectedValueOnce(new Error('speculative agent lookup failed'));
-      api.resolveChatProjectContext.mockRejectedValueOnce(
-        new Error(api.CHAT_PROJECT_CONTEXT_UNAVAILABLE),
-      );
+      api.resolveApiConversationProject.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        reason: 'unavailable',
+        message: 'Conversation context unavailable',
+      });
 
       await OpenAIChatCompletionController(req, res);
 

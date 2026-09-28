@@ -22,9 +22,8 @@ const {
   isScheduleFireRequest,
   isUnpersistedPreliminaryParent,
   startAgentProjectContextResolution,
-  assertModelBoundContent,
-  isContentFilterError,
-  CHAT_PROJECT_CONTEXT_UNAVAILABLE,
+  assertChatProjectInstructions,
+  getChatProjectTurnFailure,
   resolveConversationAnchor,
   getAgentStartupTelemetry,
   acceptAgentStartupTelemetry,
@@ -115,15 +114,9 @@ function getInitializationFailure(error) {
     };
   }
 
-  if (error?.message === CHAT_PROJECT_CONTEXT_UNAVAILABLE) {
-    return {
-      status: 404,
-      error: 'Conversation context unavailable',
-    };
-  }
-
-  if (isContentFilterError(error)) {
-    return { status: error.statusCode, ...error.body };
+  const projectFailure = getChatProjectTurnFailure(error);
+  if (projectFailure) {
+    return projectFailure;
   }
 
   const candidateStatus = error?.status ?? error?.statusCode;
@@ -1588,13 +1581,10 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
   req._agentEventTriggerProjection = getAgentEventTriggerProjection(agentEventDelivery);
 
   try {
-    const chatProjectContext = await chatProjectContextPromise;
-    if (chatProjectContext?.instructions.trim()) {
-      assertModelBoundContent({
-        filters: req.config?.filters,
-        agents: [{ instructions: chatProjectContext.instructions }],
-      });
-    }
+    assertChatProjectInstructions({
+      context: await chatProjectContextPromise,
+      filters: req.config?.filters,
+    });
     const mcpRequestBody = createMCPRuntimeRequestBody({
       messageId: preallocatedResponseMessageId,
       conversationId: effectiveConversationId,

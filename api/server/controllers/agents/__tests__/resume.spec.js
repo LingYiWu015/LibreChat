@@ -2407,13 +2407,17 @@ describe('ResumeAgentController (POST /agents/chat/resume)', () => {
       expect(mockGenerationJobManager.beginProviderExecution).not.toHaveBeenCalled();
     });
 
-    it('rejects legacy unscoped resumes when current project context is model-facing', async () => {
+    it('resumes a legacy pause without a recorded key under the current project context', async () => {
       withProject(3, undefined);
       const res = await post(approveBody());
-      expect(res.status).toBe(409);
-      expect(res.body).toMatchObject({ code: 'PROJECT_CONTEXT_CHANGED' });
-      expect(mockGenerationJobManager.approvals.resolve).toHaveBeenCalled();
-      expect(mockInitializeClient).not.toHaveBeenCalled();
+      await settled;
+      expect(res.status).toBe(200);
+      expect(mockGenerationJobManager.completeJob).not.toHaveBeenCalledWith(
+        CONVO_ID,
+        'Project context changed before approval could be resumed',
+        expect.anything(),
+      );
+      expect(mockInitializeClient).toHaveBeenCalled();
     });
 
     it('does not terminalize or prune when the approval claim loses its CAS', async () => {

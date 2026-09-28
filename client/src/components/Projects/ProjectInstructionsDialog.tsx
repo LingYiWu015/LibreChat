@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef } from 'react';
 import { Info } from 'lucide-react';
 import { useForm } from 'react-hook-form';
-import { MAX_CHAT_PROJECT_INSTRUCTIONS_LENGTH } from 'librechat-data-provider';
+import { useQueryClient } from '@tanstack/react-query';
+import { MAX_CHAT_PROJECT_INSTRUCTIONS_LENGTH, QueryKeys } from 'librechat-data-provider';
 import {
   Button,
   Label,
@@ -29,6 +30,13 @@ type InstructionsForm = {
   instructions: string;
 };
 
+type ConflictError = { response?: { status?: number; data?: { code?: string } } };
+
+const isProjectConflict = (error: unknown): boolean => {
+  const { response } = (error ?? {}) as ConflictError;
+  return response?.status === 409 && response.data?.code === 'CHAT_PROJECT_CONFLICT';
+};
+
 export default function ProjectInstructionsDialog({
   open,
   onOpenChange,
@@ -40,10 +48,12 @@ export default function ProjectInstructionsDialog({
   const { data: startupConfig } = useGetStartupConfig();
   const instructionsLimit =
     startupConfig?.projects?.maxInstructionsLength ?? MAX_CHAT_PROJECT_INSTRUCTIONS_LENGTH;
+  const queryClient = useQueryClient();
   const updateProject = useUpdateProjectMutation();
   const { showToast } = useToastContext();
   const dialogSessionRef = useRef(0);
   const wasOpenRef = useRef(open);
+  const keepDraftRef = useRef(false);
   const { register, handleSubmit, reset, watch, setFocus } = useForm<InstructionsForm>({
     defaultValues: { instructions: project.instructions ?? '' },
   });
@@ -54,7 +64,10 @@ export default function ProjectInstructionsDialog({
       dialogSessionRef.current += 1;
     }
     wasOpenRef.current = open;
-    if (open) {
+    if (!open) {
+      keepDraftRef.current = false;
+    }
+    if (open && !keepDraftRef.current) {
       reset({ instructions: project.instructions ?? '' });
     }
   }, [open, project.instructions, reset]);
@@ -66,14 +79,31 @@ export default function ProjectInstructionsDialog({
 
     const submittedSession = dialogSessionRef.current;
     updateProject.mutate(
-      { projectId: project._id, instructions: value.trim() },
+      {
+        projectId: project._id,
+        instructions: value.trim(),
+        contextRevision: project.contextRevision,
+      },
       {
         onSuccess: () => {
           if (dialogSessionRef.current === submittedSession) {
             onOpenChange(false);
           }
         },
-        onError: () => {
+        onError: (error) => {
+          if (isProjectConflict(error)) {
+            keepDraftRef.current = true;
+            void queryClient.invalidateQueries({
+              queryKey: [QueryKeys.project, project._id],
+              refetchType: 'all',
+            });
+            showToast({
+              message: localize('com_ui_project_conflict_error'),
+              severity: NotificationSeverity.ERROR,
+              showIcon: true,
+            });
+            return;
+          }
           showToast({
             message: localize('com_ui_project_instructions_error'),
             severity: NotificationSeverity.ERROR,

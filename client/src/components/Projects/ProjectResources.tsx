@@ -112,6 +112,23 @@ export default function ProjectResources({ project }: ProjectResourcesProps) {
   const optimisticAttachedIdsRef = useRef(new Set<string>());
   const [optimisticAttachedIds, setOptimisticAttachedIds] = useState<string[]>([]);
   const { data: projectFiles, isLoading, isError, refetch } = useProjectFilesQuery(project._id);
+  const listedCount = projectFiles?.length;
+  const [tracked, setTracked] = useState({ projectId: project._id, count: listedCount });
+  const [announcement, setAnnouncement] = useState('');
+  if (tracked.projectId !== project._id || tracked.count !== listedCount) {
+    const isSameProject = tracked.projectId === project._id;
+    const previous = tracked.count;
+    setTracked({ projectId: project._id, count: listedCount });
+    if (!isSameProject || previous == null || listedCount == null) {
+      setAnnouncement('');
+    } else {
+      setAnnouncement(
+        localize(
+          listedCount > previous ? 'com_ui_project_file_added' : 'com_ui_project_file_removed',
+        ),
+      );
+    }
+  }
   const availableFilesQuery = useProjectAvailableFilesInfiniteQuery(
     project._id,
     { search: deferredPickerSearch || undefined, limit: 20 },
@@ -402,116 +419,122 @@ export default function ProjectResources({ project }: ProjectResourcesProps) {
         </div>
       )}
       {!isError && !isLoading && (
-        <div
-          className="min-h-0 flex-1 space-y-2 overflow-y-auto"
-          role={uploading.length || projectFiles?.length ? 'list' : 'status'}
-          aria-live="polite"
-          aria-label={localize('com_ui_project_files')}
-        >
-          {uploading.map((item) => (
-            <div
-              key={item.id}
-              role="listitem"
-              aria-describedby={item.errorMessage ? `${item.id}-error` : undefined}
-              className="flex flex-wrap items-center gap-3 rounded-xl border border-border-light bg-surface-secondary px-3.5 py-3"
-            >
-              {item.status === 'processing' ? (
-                <Loader2
-                  className="size-4 shrink-0 animate-spin text-text-secondary"
-                  aria-hidden="true"
+        <>
+          <div className="sr-only" role="status" aria-live="polite">
+            {announcement}
+          </div>
+          <div
+            className="min-h-0 flex-1 space-y-2 overflow-y-auto"
+            role="list"
+            aria-label={localize('com_ui_project_files')}
+          >
+            {uploading.map((item) => (
+              <div
+                key={item.id}
+                role="listitem"
+                aria-describedby={item.errorMessage ? `${item.id}-error` : undefined}
+                className="flex flex-wrap items-center gap-3 rounded-xl border border-border-light bg-surface-secondary px-3.5 py-3"
+              >
+                {item.status === 'processing' ? (
+                  <Loader2
+                    className="size-4 shrink-0 animate-spin text-text-secondary"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <FilePlus2 className="size-4 shrink-0 text-text-destructive" aria-hidden="true" />
+                )}
+                <span className="min-w-0 flex-1 truncate text-sm text-text-primary">
+                  {item.filename}
+                </span>
+                <span className="text-xs text-text-secondary">
+                  {item.status === 'processing'
+                    ? localize('com_ui_project_file_processing')
+                    : localize('com_ui_project_file_failed')}
+                </span>
+                {item.errorMessage && (
+                  <p
+                    id={`${item.id}-error`}
+                    role="alert"
+                    className="basis-full text-xs text-text-destructive"
+                  >
+                    {item.errorMessage}
+                  </p>
+                )}
+                {item.status === 'failed' && (
+                  <>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={!item.fileId && !canUploadFromDevice}
+                      onClick={() => retryUpload(item)}
+                    >
+                      {localize('com_ui_retry')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0"
+                      aria-label={localize('com_ui_project_dismiss_upload', {
+                        name: item.filename,
+                      })}
+                      onClick={() => dismissUpload(item.id)}
+                    >
+                      <X className="size-4" aria-hidden="true" />
+                    </Button>
+                  </>
+                )}
+              </div>
+            ))}
+            {projectFiles?.map((file) => (
+              <div
+                key={file.file_id}
+                role="listitem"
+                className="flex items-center gap-3 rounded-xl border border-border-light bg-surface-secondary px-3.5 py-3"
+              >
+                <Paperclip className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
+                <TooltipAnchor
+                  description={file.filename ?? file.file_id}
+                  render={
+                    <span className="min-w-0 flex-1 truncate text-sm text-text-primary">
+                      {file.filename ?? file.file_id}
+                    </span>
+                  }
                 />
-              ) : (
-                <FilePlus2 className="size-4 shrink-0 text-text-destructive" aria-hidden="true" />
-              )}
-              <span className="min-w-0 flex-1 truncate text-sm text-text-primary">
-                {item.filename}
-              </span>
-              <span className="text-xs text-text-secondary">
-                {item.status === 'processing'
-                  ? localize('com_ui_project_file_processing')
-                  : localize('com_ui_project_file_failed')}
-              </span>
-              {item.errorMessage && (
-                <p
-                  id={`${item.id}-error`}
-                  role="alert"
-                  className="basis-full text-xs text-text-destructive"
+                <span
+                  className={
+                    file.availability === 'ready'
+                      ? 'text-xs text-text-secondary'
+                      : 'text-xs text-text-destructive'
+                  }
                 >
-                  {item.errorMessage}
-                </p>
-              )}
-              {item.status === 'failed' && (
-                <>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={!item.fileId && !canUploadFromDevice}
-                    onClick={() => retryUpload(item)}
-                  >
-                    {localize('com_ui_retry')}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 shrink-0"
-                    aria-label={localize('com_ui_project_dismiss_upload', { name: item.filename })}
-                    onClick={() => dismissUpload(item.id)}
-                  >
-                    <X className="size-4" aria-hidden="true" />
-                  </Button>
-                </>
-              )}
-            </div>
-          ))}
-          {projectFiles?.map((file) => (
-            <div
-              key={file.file_id}
-              role="listitem"
-              className="flex items-center gap-3 rounded-xl border border-border-light bg-surface-secondary px-3.5 py-3"
-            >
-              <Paperclip className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
-              <TooltipAnchor
-                description={file.filename ?? file.file_id}
-                render={
-                  <span className="min-w-0 flex-1 truncate text-sm text-text-primary">
-                    {file.filename ?? file.file_id}
-                  </span>
-                }
+                  {statusLabel(localize, file.availability)}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  aria-label={localize('com_ui_project_remove_file', {
+                    name: file.filename ?? file.file_id,
+                  })}
+                  onClick={() => void remove(file.file_id)}
+                  disabled={removeFile.isLoading}
+                >
+                  <Trash2 className="size-4" aria-hidden="true" />
+                </Button>
+              </div>
+            ))}
+            {!uploading.length && !projectFiles?.length && (
+              <EmptyState
+                icon={Files}
+                description={localize('com_ui_project_no_files')}
+                className="h-full border-0"
               />
-              <span
-                className={
-                  file.availability === 'ready'
-                    ? 'text-xs text-text-secondary'
-                    : 'text-xs text-text-destructive'
-                }
-              >
-                {statusLabel(localize, file.availability)}
-              </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-8 shrink-0"
-                aria-label={localize('com_ui_project_remove_file', {
-                  name: file.filename ?? file.file_id,
-                })}
-                onClick={() => void remove(file.file_id)}
-                disabled={removeFile.isLoading}
-              >
-                <Trash2 className="size-4" aria-hidden="true" />
-              </Button>
-            </div>
-          ))}
-          {!uploading.length && !projectFiles?.length && (
-            <EmptyState
-              icon={Files}
-              description={localize('com_ui_project_no_files')}
-              className="h-full border-0"
-            />
-          )}
-        </div>
+            )}
+          </div>
+        </>
       )}
 
       <OGDialog open={isPickerOpen} onOpenChange={setIsPickerOpen} triggerRef={pickerMenuRef}>
@@ -564,9 +587,11 @@ export default function ProjectResources({ project }: ProjectResourcesProps) {
               <ul className="space-y-2">
                 {availableFiles.map((file) => (
                   <li key={file.file_id}>
-                    <button
+                    <Button
                       type="button"
-                      className="flex w-full items-center gap-3 rounded-xl border border-border-light bg-surface-secondary px-3.5 py-3 text-left transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-text-primary"
+                      variant="outline"
+                      size="row"
+                      className="w-full rounded-xl bg-surface-secondary hover:bg-surface-hover"
                       onClick={() => void addExistingFile(file.file_id)}
                       disabled={addFile.isLoading || !hasFileCapacity}
                     >
@@ -580,7 +605,7 @@ export default function ProjectResources({ project }: ProjectResourcesProps) {
                       <span className="shrink-0 text-xs text-text-secondary">
                         {formatFileSize(file.bytes)}
                       </span>
-                    </button>
+                    </Button>
                   </li>
                 ))}
               </ul>

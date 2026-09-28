@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { EToolResources, FileContext } from 'librechat-data-provider';
+import type { IChatProject } from '~/types';
 import { _resetStrictCache } from '~/models/plugins/tenantIsolation';
 import { runAsSystem } from '~/config/tenantContext';
 import { createFileMethods } from './file';
@@ -2231,6 +2232,63 @@ describe('File Methods', () => {
 
       const found = await fileMethods.findFileById(fileId);
       expect(found).toBeNull();
+    });
+  });
+
+  describe('project reference cleanup on delete', () => {
+    async function seed() {
+      const userId = new mongoose.Types.ObjectId();
+      const ChatProject = mongoose.models.ChatProject as mongoose.Model<IChatProject>;
+      const ids = [uuidv4(), uuidv4()];
+      for (const fileId of ids) {
+        await fileMethods.createFile({
+          file_id: fileId,
+          user: userId,
+          filename: `${fileId}.txt`,
+          filepath: `/uploads/${fileId}.txt`,
+          type: 'text/plain',
+          bytes: 1,
+        });
+      }
+      const project = await ChatProject.create({
+        user: userId.toString(),
+        name: 'P',
+        file_ids: [...ids, 'other'],
+        contextRevision: 4,
+      });
+      const untouched = await ChatProject.create({
+        user: new mongoose.Types.ObjectId().toString(),
+        name: 'Q',
+        file_ids: [ids[0]],
+        contextRevision: 1,
+      });
+      return { ids, project, untouched, ChatProject };
+    }
+
+    it('pulls a deleted file from the owner projects and bumps the revision', async () => {
+      const { ids, project, untouched, ChatProject } = await seed();
+      await fileMethods.deleteFile(ids[0]);
+      const after = await ChatProject.findById(project._id).lean();
+      expect(after?.file_ids).toEqual([ids[1], 'other']);
+      expect(after?.contextRevision).toBe(5);
+      const other = await ChatProject.findById(untouched._id).lean();
+      expect(other?.file_ids).toEqual([ids[0]]);
+      expect(other?.contextRevision).toBe(1);
+    });
+
+    it('pulls every id removed by deleteFiles', async () => {
+      const { ids, project, ChatProject } = await seed();
+      await fileMethods.deleteFiles(ids);
+      const after = await ChatProject.findById(project._id).lean();
+      expect(after?.file_ids).toEqual(['other']);
+      expect(after?.contextRevision).toBe(5);
+    });
+
+    it('pulls a file removed through deleteFileByFilter', async () => {
+      const { ids, project, ChatProject } = await seed();
+      await fileMethods.deleteFileByFilter({ file_id: ids[1] });
+      const after = await ChatProject.findById(project._id).lean();
+      expect(after?.file_ids).toEqual([ids[0], 'other']);
     });
   });
 

@@ -482,6 +482,20 @@ describe('ChatProject methods', () => {
     expect(conversation?.chatProjectId).toBeUndefined();
   });
 
+  it('unassigns chats before deleting and keeps the project when the unassign fails', async () => {
+    const project = await methods.createChatProject(user, { name: 'Ordered' });
+    await createConversation(user, 'convo-order', 'First');
+    await methods.assignConversationToProject(user, 'convo-order', project._id!.toString());
+    const spy = jest.spyOn(Conversation, 'updateMany').mockRejectedValueOnce(new Error('boom'));
+
+    await expect(methods.deleteChatProject(user, project._id!.toString())).rejects.toThrow('boom');
+    spy.mockRestore();
+
+    expect(await ChatProject.countDocuments({ _id: project._id })).toBe(1);
+    const conversation = await Conversation.findOne({ conversationId: 'convo-order' }).lean();
+    expect(conversation?.chatProjectId).toBe(project._id!.toString());
+  });
+
   it('isolates projects and assignments by user', async () => {
     const project = await methods.createChatProject(user, { name: 'Mine' });
     await createConversation(otherUser, 'convo-1', 'Theirs');
@@ -697,6 +711,56 @@ describe('persistent Project context', () => {
     await methods.deleteChatProject(owner, second._id!.toString());
     expect(await File.countDocuments({ file_id: original.file_id })).toBe(1);
     expect(await Conversation.countDocuments({ user: owner })).toBe(2);
+  });
+
+  it('rejects updates based on a stale contextRevision and accepts current ones', async () => {
+    const project = await methods.createChatProject(owner, { name: 'Shared', instructions: 'v1' });
+    const id = project._id!.toString();
+    const revision = project.contextRevision;
+
+    const first = await methods.updateChatProject(owner, id, {
+      instructions: 'v2',
+      contextRevision: revision,
+    });
+    expect(first?.instructions).toBe('v2');
+    expect(first?.contextRevision).toBe((revision ?? 0) + 1);
+
+    await expect(
+      methods.updateChatProject(owner, id, { instructions: 'v3', contextRevision: revision }),
+    ).rejects.toThrow('Project revision conflict');
+    await expect(
+      methods.updateChatProject(owner, id, { name: 'Renamed', contextRevision: revision }),
+    ).rejects.toThrow('Project revision conflict');
+    expect((await methods.getChatProject(owner, id))?.instructions).toBe('v2');
+
+    const withoutRevision = await methods.updateChatProject(owner, id, { instructions: 'v4' });
+    expect(withoutRevision?.instructions).toBe('v4');
+
+    expect(
+      await methods.updateChatProject(owner, new mongoose.Types.ObjectId().toString(), {
+        name: 'x',
+        contextRevision: 0,
+      }),
+    ).toBeNull();
+  });
+
+  it('releases the temporary hold before attaching and survives a release failure', async () => {
+    const project = await methods.createChatProject(owner, { name: 'Holds' });
+    const id = project._id!.toString();
+    await createReference('held', { expiresAt: new Date(Date.now() + 3_600_000) });
+    await createReference('held-fail', { expiresAt: new Date(Date.now() + 3_600_000) });
+
+    const attached = await methods.addChatProjectFile(owner, id, 'held');
+    expect(attached?.file_ids).toEqual(['held']);
+    expect(await File.findOne({ file_id: 'held' }).lean()).not.toHaveProperty('expiresAt');
+
+    const spy = jest.spyOn(File, 'findOneAndUpdate').mockImplementationOnce(() => {
+      throw new Error('release failed');
+    });
+    const again = await methods.addChatProjectFile(owner, id, 'held-fail');
+    spy.mockRestore();
+    expect(again?.file_ids).toEqual(['held', 'held-fail']);
+    expect(await File.findOne({ file_id: 'held-fail' }).lean()).not.toHaveProperty('expiresAt');
   });
 
   it('rejects unauthorized, agent-scoped, unindexed, missing and expired references', async () => {

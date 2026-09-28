@@ -84,10 +84,12 @@ function ProjectCard({
           />
         </div>
       ) : (
-        <button
+        <Button
           ref={navigationButtonRef}
           type="button"
-          className="flex min-h-[9.5rem] w-full min-w-0 max-w-full flex-1 flex-col rounded-2xl p-4 pr-12 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-text-primary"
+          variant="card"
+          size="tile"
+          className="min-h-[9.5rem] w-full min-w-0 max-w-full flex-1 flex-col items-stretch"
           onClick={() => onOpen(project._id)}
         >
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-surface-tertiary text-text-secondary transition-colors group-hover/project:text-text-primary">
@@ -120,7 +122,7 @@ function ProjectCard({
               </>
             ) : null}
           </span>
-        </button>
+        </Button>
       )}
       <div className="absolute right-2 top-2">
         <DropdownPopup

@@ -69,6 +69,45 @@ describe('ChatProject handlers', () => {
     expect(deps.updateChatProject).not.toHaveBeenCalled();
   });
 
+  it('passes a contextRevision through and maps a stale one to a 409 conflict', async () => {
+    const { handlers, deps } = setup({
+      updateChatProject: jest.fn().mockRejectedValue(new Error('Project revision conflict')),
+    });
+    const { res, result } = response();
+    await handlers.updateProject(
+      request({ params: { projectId }, body: { name: 'Renamed', contextRevision: 3 } }),
+      res,
+    );
+    expect(deps.updateChatProject).toHaveBeenCalledWith(
+      'owner',
+      projectId,
+      { name: 'Renamed', contextRevision: 3 },
+      undefined,
+    );
+    expect(result.statusCode).toBe(409);
+    expect(result.body).toEqual({
+      message: 'Project was changed by another session',
+      code: 'CHAT_PROJECT_CONFLICT',
+    });
+  });
+
+  it('keeps last-writer behavior when contextRevision is absent and rejects invalid values', async () => {
+    const updateChatProject = jest.fn().mockResolvedValue({ _id: projectId });
+    const { handlers } = setup({ updateChatProject });
+    const ok = response();
+    await handlers.updateProject(request({ params: { projectId }, body: { name: 'A' } }), ok.res);
+    expect(ok.result.statusCode).toBe(200);
+    expect(updateChatProject.mock.calls[0][2]).toEqual({ name: 'A' });
+
+    const bad = response();
+    await handlers.updateProject(
+      request({ params: { projectId }, body: { name: 'A', contextRevision: -1 } }),
+      bad.res,
+    );
+    expect(bad.result.statusCode).toBe(400);
+    expect(updateChatProject).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses an over-long description instead of storing a shortened one', async () => {
     const { handlers, deps } = setup();
     const description = 'd'.repeat(41);

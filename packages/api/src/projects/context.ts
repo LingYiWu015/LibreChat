@@ -12,7 +12,7 @@ export interface ResolvedChatProjectContext {
   /** Owner-scoped canonical file metadata, with no extracted content. */
   resources: readonly CanonicalProjectResource[];
 }
-type ConversationSnapshot = Partial<IConversation> & {
+export type ConversationSnapshot = Partial<IConversation> & {
   conversationId?: string;
   chatProjectId?: string | null;
   user?: string;
@@ -41,16 +41,26 @@ export interface ResolveChatProjectContextDeps {
 
 export const CHAT_PROJECT_CONTEXT_UNAVAILABLE = 'Project context unavailable';
 
-export interface AgentProjectContextRequest {
+export interface ChatProjectTenantSource {
   user: { id: string; tenantId?: string | null };
+  _agentEventBindingParentConversationId?: string | null;
+  _agentEventBindingTenantId?: string | null;
+}
+
+/** Bound child conversations resolve project context in the event binding's tenant. */
+export function getChatProjectTenantId(req: ChatProjectTenantSource): string | null | undefined {
+  return req._agentEventBindingParentConversationId != null
+    ? req._agentEventBindingTenantId
+    : req.user.tenantId || undefined;
+}
+
+export interface AgentProjectContextRequest extends ChatProjectTenantSource {
   body?: { chatProjectId?: string | null };
   chatProjectContext?: ResolvedChatProjectContext | null;
   chatProjectContextPromise?: Promise<ResolvedChatProjectContext | null>;
   chatProjectContextResourcesPromise?: Promise<ResolvedChatProjectContext>;
   chatProjectContextEnabled?: boolean;
   resolvedConversation?: ConversationSnapshot | null;
-  _agentEventBindingParentConversationId?: string | null;
-  _agentEventBindingTenantId?: string | null;
 }
 
 export async function hydrateChatProjectContextResources(
@@ -119,10 +129,7 @@ export function startAgentProjectContextResolution({
       return resolveChatProjectContext(
         {
           userId: req.user.id,
-          tenantId:
-            req._agentEventBindingParentConversationId != null
-              ? req._agentEventBindingTenantId
-              : req.user.tenantId || undefined,
+          tenantId: getChatProjectTenantId(req),
           conversationId,
           requestedProjectId,
           resolvedConversation: isNewConvo ? (conversation ?? null) : conversation,
@@ -217,6 +224,9 @@ export async function resolveChatProjectContext(
 
   const project = await deps.getChatProject(userId, projectId);
   if (project == null || (project.tenantId ?? null) !== (tenantId ?? null)) {
+    if (conversationIsAuthoritative) {
+      return null;
+    }
     throw new Error(CHAT_PROJECT_CONTEXT_UNAVAILABLE);
   }
 

@@ -25,6 +25,7 @@ import type { GetProjectFiles } from './resources';
 import { toRuntimeFile, listChatProjectFileViews } from './resources';
 import { normalizeLimit, queryString } from '~/utils';
 
+const CHAT_PROJECT_CONFLICT = 'Project revision conflict';
 const PROJECT_NOT_FOUND = 'Project not found';
 const CONVERSATION_NOT_FOUND = 'Conversation not found';
 const PROJECT_FILE_UNAVAILABLE = 'Project file unavailable';
@@ -268,6 +269,13 @@ export function createProjectHandlers(deps: ProjectHandlerDependencies): {
       }
       input.instructions = req.body.instructions;
     }
+    if (req.body?.contextRevision !== undefined) {
+      const revision = req.body.contextRevision;
+      if (!Number.isInteger(revision) || revision < 0) {
+        return res.status(400).json({ error: 'contextRevision must be a non-negative integer' });
+      }
+      input.contextRevision = revision;
+    }
 
     try {
       const project = await deps.updateChatProject(
@@ -281,6 +289,12 @@ export function createProjectHandlers(deps: ProjectHandlerDependencies): {
       }
       return res.status(200).json(project);
     } catch (error) {
+      if (error instanceof Error && error.message === CHAT_PROJECT_CONFLICT) {
+        return res.status(409).json({
+          message: 'Project was changed by another session',
+          code: 'CHAT_PROJECT_CONFLICT',
+        });
+      }
       logger.error('[projects] Error updating project', error);
       return res.status(500).json({ error: 'Error updating project' });
     }

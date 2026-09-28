@@ -71,10 +71,8 @@ jest.mock('@librechat/api', () => ({
   getSafeErrorText: jest.requireActual('@librechat/api').getSafeErrorText,
   startAgentProjectContextResolution:
     jest.requireActual('@librechat/api').startAgentProjectContextResolution,
-  assertModelBoundContent: jest.requireActual('@librechat/api').assertModelBoundContent,
-  isContentFilterError: jest.requireActual('@librechat/api').isContentFilterError,
-  CHAT_PROJECT_CONTEXT_UNAVAILABLE:
-    jest.requireActual('@librechat/api').CHAT_PROJECT_CONTEXT_UNAVAILABLE,
+  assertChatProjectInstructions: jest.requireActual('@librechat/api').assertChatProjectInstructions,
+  getChatProjectTurnFailure: jest.requireActual('@librechat/api').getChatProjectTurnFailure,
   GenerationJobManager: mockGenerationJobManager,
   getReferencedQuotes: jest.fn(() => null),
   cleanupMCPRequestContext: jest.fn(),

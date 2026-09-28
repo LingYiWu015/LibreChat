@@ -2,6 +2,17 @@ import { z } from 'zod';
 import type { ZodError } from 'zod';
 import type { TEndpointsConfig, TModelsConfig, TConfig } from './types';
 import {
+  MAX_SUBAGENTS,
+  MAX_SUBAGENTS_CEILING,
+  MAX_CHAT_PROJECT_DESCRIPTION_LENGTH,
+  MAX_CHAT_PROJECT_INSTRUCTIONS_LENGTH,
+  MAX_CHAT_PROJECT_FILES,
+  MAX_CHAT_PROJECT_FILES_CEILING,
+  MAX_CHAT_PROJECT_DESCRIPTION_LENGTH_CEILING,
+  MAX_CHAT_PROJECT_INSTRUCTIONS_LENGTH_CEILING,
+  DEFAULT_MAX_RETAINED_TOOL_COUNT_CHARS,
+} from './limits';
+import {
   filtersConfigSchema,
   MAX_PII_CUSTOM_REGEX_CHARACTERS,
   MAX_PII_CUSTOM_REGEX_INSTRUCTIONS,
@@ -10,14 +21,6 @@ import {
   MAX_PII_PATTERNS_PER_SOURCE,
   MAX_PII_PATTERN_LENGTH,
 } from './filters';
-import {
-  MAX_SUBAGENTS,
-  MAX_SUBAGENTS_CEILING,
-  MAX_CHAT_PROJECT_DESCRIPTION_LENGTH,
-  MAX_CHAT_PROJECT_INSTRUCTIONS_LENGTH,
-  MAX_CHAT_PROJECT_FILES,
-  DEFAULT_MAX_RETAINED_TOOL_COUNT_CHARS,
-} from './limits';
 import {
   EModelEndpoint,
   eModelEndpointSchema,
@@ -52,6 +55,9 @@ export {
   DEFAULT_MAX_RETAINED_TOOL_COUNT_CHARS,
   MAX_CHAT_PROJECT_INSTRUCTIONS_LENGTH,
   MAX_CHAT_PROJECT_FILES,
+  MAX_CHAT_PROJECT_FILES_CEILING,
+  MAX_CHAT_PROJECT_DESCRIPTION_LENGTH_CEILING,
+  MAX_CHAT_PROJECT_INSTRUCTIONS_LENGTH_CEILING,
 } from './limits';
 
 export const defaultSocialLogins = ['google', 'facebook', 'openid', 'github', 'discord', 'saml'];
@@ -2873,12 +2879,19 @@ export type TOpenIdDiscoveryConfig = z.infer<typeof openIdDiscoverySchema>;
 export const chatProjectsConfigSchema = z
   .object({
     /** Maximum number of reference files attached to one Chat Project. Defaults to 50. */
-    maxFiles: z.number().int().positive().optional().default(MAX_CHAT_PROJECT_FILES),
+    maxFiles: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_CHAT_PROJECT_FILES_CEILING)
+      .optional()
+      .default(MAX_CHAT_PROJECT_FILES),
     /** Maximum instruction characters stored for one Chat Project. Defaults to 16000. */
     maxInstructionsLength: z
       .number()
       .int()
       .positive()
+      .max(MAX_CHAT_PROJECT_INSTRUCTIONS_LENGTH_CEILING)
       .optional()
       .default(MAX_CHAT_PROJECT_INSTRUCTIONS_LENGTH),
     /** Maximum description characters stored for one Chat Project. Defaults to 1000. */
@@ -2886,6 +2899,7 @@ export const chatProjectsConfigSchema = z
       .number()
       .int()
       .positive()
+      .max(MAX_CHAT_PROJECT_DESCRIPTION_LENGTH_CEILING)
       .optional()
       .default(MAX_CHAT_PROJECT_DESCRIPTION_LENGTH),
   })

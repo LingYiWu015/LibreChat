@@ -428,6 +428,8 @@ export type TCreateChatProjectRequest = {
 
 export type TUpdateChatProjectRequest = Partial<TCreateChatProjectRequest> & {
   projectId: string;
+  /** Revision the edit was based on; a stale value is rejected with a 409 conflict. */
+  contextRevision?: number;
 };
 
 export type TChatProjectFile = {

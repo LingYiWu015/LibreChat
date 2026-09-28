@@ -6,6 +6,12 @@ import type { ReactNode } from 'react';
 import ProjectInstructionsDialog from './ProjectInstructionsDialog';
 
 const mockMutate = jest.fn();
+const mockInvalidateQueries = jest.fn();
+const mockShowToast = jest.fn();
+
+jest.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
+}));
 
 jest.mock('@librechat/client', () => {
   const React = jest.requireActual<typeof ReactModule>('react');
@@ -47,7 +53,7 @@ jest.mock('@librechat/client', () => {
           : null,
         React.createElement('div', { key: 'buttons' }, buttons),
       ]),
-    useToastContext: () => ({ showToast: jest.fn() }),
+    useToastContext: () => ({ showToast: mockShowToast }),
   };
 });
 
@@ -88,6 +94,7 @@ jest.mock('~/hooks', () => ({
       com_ui_project_instructions_label: 'Workspace instructions',
       com_ui_project_instructions_help: 'Additional context',
       com_ui_project_instructions_error: 'Could not save project instructions',
+      com_ui_project_conflict_error: 'Project changed elsewhere',
       com_ui_save: 'Save',
       com_ui_saving: 'Saving',
       com_ui_cancel: 'Cancel',
@@ -100,6 +107,7 @@ const project = {
   _id: 'project-1',
   name: 'Writing project',
   instructions: 'Use a concise tone.',
+  contextRevision: 3,
   conversationCount: 0,
   createdAt: '2026-01-01',
   updatedAt: '2026-01-01',
@@ -127,6 +135,28 @@ describe('ProjectInstructionsDialog', () => {
     mockMutate.mockImplementationOnce((_payload, callbacks) => callbacks.onSuccess(project));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('sends the project revision and keeps the draft when the save conflicts', async () => {
+    const onOpenChange = jest.fn();
+    mockMutate.mockImplementationOnce((_payload, callbacks) =>
+      callbacks.onError({ response: { status: 409, data: { code: 'CHAT_PROJECT_CONFLICT' } } }),
+    );
+    render(<ProjectInstructionsDialog open onOpenChange={onOpenChange} project={project} />);
+    const textarea = screen.getByRole('textbox', { name: 'Workspace instructions' });
+    fireEvent.change(textarea, { target: { value: 'Keep this unsaved draft.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledTimes(1));
+    expect(mockMutate.mock.calls[0][0]).toMatchObject({ contextRevision: 3 });
+    expect(mockShowToast).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Project changed elsewhere' }),
+    );
+    expect(mockInvalidateQueries).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ['project', 'project-1'] }),
+    );
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(textarea).toHaveValue('Keep this unsaved draft.');
   });
 
   it('protects the draft and dismissal controls while a save is pending', async () => {
