@@ -170,6 +170,18 @@ describe('createNativePromptAdapter', () => {
     });
   });
 
+  it('throws when native promotion reports a failure', async () => {
+    const dependencies = createDependencies();
+    dependencies.makePromptProduction.mockResolvedValue({
+      message: 'Error making prompt production',
+    });
+    const adapter = createNativePromptAdapter(dependencies);
+
+    await expect(adapter.promoteRevision('prompt-1')).rejects.toThrow(
+      'Error making prompt production',
+    );
+  });
+
   it('maps selection kinds to stable unavailable reasons', () => {
     expect(selectionUnavailableReason({ type: 'production' })).toBe('production');
     expect(selectionUnavailableReason({ type: 'exact', promptId: 'prompt-1' })).toBe('revision');

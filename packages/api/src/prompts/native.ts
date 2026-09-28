@@ -76,6 +76,17 @@ async function resolveProduction(
   return isMatchingRevision(revision, groupId, group.productionId) ? resolveValue(revision) : null;
 }
 
+async function promoteRevision(
+  dependencies: NativePromptDependencies,
+  promptId: string,
+): Promise<{ readonly message: string }> {
+  const result = await dependencies.makePromptProduction(promptId);
+  if (result.message !== 'Prompt production made successfully') {
+    throw new Error(result.message);
+  }
+  return result;
+}
+
 export function createNativePromptAdapter(
   dependencies: NativePromptDependencies,
 ): PromptSourceAdapter {
@@ -91,7 +102,7 @@ export function createNativePromptAdapter(
     listRevisions: dependencies.getPrompts,
     createGroup: dependencies.createPromptGroup,
     addRevision: dependencies.savePrompt,
-    promoteRevision: dependencies.makePromptProduction,
+    promoteRevision: (promptId) => promoteRevision(dependencies, promptId),
     deleteRevision: dependencies.deletePrompt,
   };
 }

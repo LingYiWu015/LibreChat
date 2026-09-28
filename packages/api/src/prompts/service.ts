@@ -91,13 +91,17 @@ function inspect<T>(
   return finding == null ? null : blockedContent(finding);
 }
 
-function validateRevisionInput<T>(
-  input: Pick<AddPromptRevisionInput, 'prompt'>,
-): PromptServiceResult<T> | null {
-  if (typeof input.prompt.prompt !== 'string' || input.prompt.prompt.trim().length === 0) {
+function validateRevisionInput<T>(input: {
+  readonly prompt?: unknown;
+}): PromptServiceResult<T> | null {
+  if (typeof input.prompt !== 'object' || input.prompt == null) {
+    return invalidInput('Prompt is required and must be an object');
+  }
+  const prompt = input.prompt as { readonly prompt?: unknown; readonly type?: unknown };
+  if (typeof prompt.prompt !== 'string' || prompt.prompt.trim().length === 0) {
     return invalidInput('Prompt text is required and must be a non-empty string');
   }
-  if (input.prompt.type !== 'text' && input.prompt.type !== 'chat') {
+  if (prompt.type !== 'text' && prompt.type !== 'chat') {
     return invalidInput('Prompt type must be text or chat');
   }
   return null;

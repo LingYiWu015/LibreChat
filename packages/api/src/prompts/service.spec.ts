@@ -280,6 +280,29 @@ describe('createPromptService', () => {
     expect(source.createGroup).not.toHaveBeenCalled();
   });
 
+  it('rejects missing prompt objects before writing', async () => {
+    const { dependencies, source } = createDependencies();
+    const service = createPromptService(dependencies);
+
+    await expect(
+      service.createGroup({
+        group: { name: 'Group' },
+        prompt: null as never,
+        author: 'user-1',
+        authorName: 'User',
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { type: 'invalid_input' } });
+    await expect(
+      service.addRevision({
+        groupId: 'group-1',
+        prompt: undefined as never,
+        author: 'user-1',
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { type: 'invalid_input' } });
+    expect(source.createGroup).not.toHaveBeenCalled();
+    expect(source.addRevision).not.toHaveBeenCalled();
+  });
+
   it('rejects protected creation before writing', async () => {
     const { dependencies, source } = createDependencies();
     const service = createPromptService(dependencies);
