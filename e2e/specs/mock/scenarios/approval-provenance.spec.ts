@@ -9,8 +9,9 @@ import {
   expectCompletedApprovalToolOutput,
 } from '../tool-approvals.helpers';
 import { cleanupAgent } from '../agents.helpers';
-import { NEW_CHAT_PATH } from '../helpers';
-import { withMongo } from '../db';
+import { NEW_CHAT_PATH, getAccessToken, requestJson } from '../helpers';
+
+type SavedMessage = { isCreatedByUser?: boolean; userSubmittedPaths?: string[] };
 
 test.describe('Tool approval provenance', () => {
   test('an edited approval resumes and its saved reply marks the edit as user-submitted @scenario:an-edited-approval-keeps-its-user-submitted-provenance', async ({
@@ -30,7 +31,7 @@ test.describe('Tool approval provenance', () => {
         timeout: 10000,
       });
       const card = await startApproval(page, label);
-      const conversationId = new URL(page.url()).pathname.split('/').pop();
+      const conversationId = new URL(page.url()).pathname.split('/').pop() ?? '';
 
       await card.getByRole('button', { name: 'Edit' }).click();
       await card
@@ -49,15 +50,16 @@ test.describe('Tool approval provenance', () => {
       );
       await expectApprovalInvocationCount(editedValue, 1);
 
+      const token = await getAccessToken(page);
       await expect
         .poll(
-          () =>
-            withMongo(async (db) => {
-              const reply = await db
-                .collection('messages')
-                .findOne({ conversationId, isCreatedByUser: false }, { sort: { createdAt: -1 } });
-              return reply?.userSubmittedPaths ?? [];
-            }),
+          async () => {
+            const messages = await requestJson<SavedMessage[]>(page, {
+              path: `/api/messages/${encodeURIComponent(conversationId)}`,
+              token,
+            });
+            return messages.find((message) => !message.isCreatedByUser)?.userSubmittedPaths ?? [];
+          },
           { timeout: 30000 },
         )
         .toEqual(
