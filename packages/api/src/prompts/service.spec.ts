@@ -465,6 +465,28 @@ describe('createPromptService', () => {
     });
   });
 
+  it('honors loaded missing management records without another read', async () => {
+    const { dependencies, source } = createDependencies();
+    const service = createPromptService(dependencies);
+
+    await expect(service.getGroup({ groupId: 'group-1', loadedGroup: null })).resolves.toEqual({
+      ok: true,
+      value: null,
+    });
+    await expect(
+      service.getRevision({ promptId: 'prompt-1', loadedRevision: null }),
+    ).resolves.toEqual({ ok: true, value: null });
+    await expect(
+      service.promoteRevision({ promptId: 'prompt-1', loadedRevision: null }),
+    ).resolves.toEqual({
+      ok: false,
+      error: { type: 'unavailable_selection', reason: 'revision' },
+    });
+    expect(source.getGroup).not.toHaveBeenCalled();
+    expect(source.getRevision).not.toHaveBeenCalled();
+    expect(source.promoteRevision).not.toHaveBeenCalled();
+  });
+
   it('reuses a loaded revision and rejects blocked content', async () => {
     const { dependencies, source } = createDependencies();
     const service = createPromptService(dependencies);

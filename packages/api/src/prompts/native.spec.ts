@@ -65,6 +65,28 @@ describe('createNativePromptAdapter', () => {
     expect(dependencies.getPrompt).not.toHaveBeenCalled();
   });
 
+  it('honors loaded missing records without another read', async () => {
+    const dependencies = createDependencies();
+    const adapter = createNativePromptAdapter(dependencies);
+
+    await expect(
+      adapter.resolvePrompt({
+        groupId: 'group-1',
+        selection: { type: 'production' },
+        loadedGroup: null,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      adapter.resolvePrompt({
+        groupId: 'group-1',
+        selection: { type: 'exact', promptId: 'prompt-1' },
+        loadedRevision: null,
+      }),
+    ).resolves.toBeNull();
+    expect(dependencies.getPromptGroup).not.toHaveBeenCalled();
+    expect(dependencies.getPrompt).not.toHaveBeenCalled();
+  });
+
   it('loads the Production revision when the group snapshot is only a projection', async () => {
     const dependencies = createDependencies();
     const adapter = createNativePromptAdapter(dependencies);

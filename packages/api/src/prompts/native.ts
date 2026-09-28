@@ -53,9 +53,10 @@ async function resolveExact(
   promptId: string,
   loadedRevision?: PromptRecord | null,
 ): Promise<ResolvedPrompt | null> {
-  const revision = isMatchingRevision(loadedRevision, groupId, promptId)
-    ? loadedRevision
-    : await dependencies.getPrompt(promptId);
+  let revision = loadedRevision;
+  if (revision !== null && !isMatchingRevision(revision, groupId, promptId)) {
+    revision = await dependencies.getPrompt(promptId);
+  }
   return isMatchingRevision(revision, groupId, promptId) ? resolveValue(revision) : null;
 }
 
@@ -64,8 +65,10 @@ async function resolveProduction(
   groupId: string,
   loadedGroup?: PromptGroupRecord | null,
 ): Promise<ResolvedPrompt | null> {
-  const group =
-    loadedGroup?._id === groupId ? loadedGroup : await dependencies.getPromptGroup(groupId);
+  let group = loadedGroup;
+  if (group !== null && group?._id !== groupId) {
+    group = await dependencies.getPromptGroup(groupId);
+  }
   if (group == null || group.productionId == null) {
     return null;
   }

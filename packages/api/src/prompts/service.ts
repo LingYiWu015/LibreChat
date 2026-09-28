@@ -199,10 +199,10 @@ export function createPromptService(dependencies: PromptServiceDependencies): Pr
     }): Promise<
       PromptServiceResult<ReturnType<typeof projectStoredPromptGroup<PromptGroupRecord>>>
     > {
-      const group =
-        input.loadedGroup?._id === input.groupId
-          ? input.loadedGroup
-          : await source.getGroup(input.groupId);
+      let group = input.loadedGroup;
+      if (group !== null && group?._id !== input.groupId) {
+        group = await source.getGroup(input.groupId);
+      }
       if (group == null) {
         return { ok: true, value: null };
       }
@@ -218,10 +218,10 @@ export function createPromptService(dependencies: PromptServiceDependencies): Pr
       readonly loadedRevision?: PromptRecord | null;
       readonly filters?: ResolvePromptInput['filters'];
     }): Promise<PromptServiceResult<ReturnType<typeof projectStoredPrompt<PromptRecord>> | null>> {
-      const revision =
-        input.loadedRevision?._id === input.promptId
-          ? input.loadedRevision
-          : await source.getRevision(input.promptId);
+      let revision = input.loadedRevision;
+      if (revision !== null && revision?._id !== input.promptId) {
+        revision = await source.getRevision(input.promptId);
+      }
       if (revision == null) {
         return { ok: true, value: null };
       }
@@ -256,10 +256,10 @@ export function createPromptService(dependencies: PromptServiceDependencies): Pr
       readonly loadedRevision?: PromptRecord | null;
       readonly filters?: ResolvePromptInput['filters'];
     }) {
-      const revision =
-        input.loadedRevision?._id === input.promptId
-          ? input.loadedRevision
-          : await source.getRevision(input.promptId);
+      let revision = input.loadedRevision;
+      if (revision !== null && revision?._id !== input.promptId) {
+        revision = await source.getRevision(input.promptId);
+      }
       if (revision == null) {
         return {
           ok: false,
