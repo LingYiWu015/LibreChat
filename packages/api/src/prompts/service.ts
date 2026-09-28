@@ -150,6 +150,12 @@ export function createPromptService(dependencies: PromptServiceDependencies): Pr
       if (input.group.name.trim().length === 0) {
         return invalidInput('Prompt and group name are required');
       }
+      const groupValidation = safeValidatePromptGroupUpdate(input.group);
+      if (!groupValidation.success) {
+        return invalidInput(
+          groupValidation.error.issues[0]?.message ?? 'Invalid prompt group metadata',
+        );
+      }
       const validation =
         validateRevisionInput<Awaited<ReturnType<typeof source.createGroup>>>(input);
       if (validation != null) {
