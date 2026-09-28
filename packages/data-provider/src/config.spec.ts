@@ -20,6 +20,7 @@ import {
   MAX_MCP_APP_PERSISTED_BYTES,
   resolveMCPAppRateLimits,
   resolveMCPAppsPolicy,
+  isTwoFactorPolicyProvider,
   resolveEndpointType,
   webSearchSchema,
 } from './config';
@@ -285,6 +286,16 @@ describe('scheduled MCP preflight config', () => {
         interface: { schedules: { use: true, mcpPreflightTimeoutMs: 999 } },
       }).success,
     ).toBe(false);
+  });
+});
+
+describe('isTwoFactorPolicyProvider', () => {
+  it.each(['local', 'ldap', null, undefined])('includes provider %s', (provider) => {
+    expect(isTwoFactorPolicyProvider(provider)).toBe(true);
+  });
+
+  it.each(['openid', 'google', 'saml'])('excludes federated provider %s', (provider) => {
+    expect(isTwoFactorPolicyProvider(provider)).toBe(false);
   });
 });
 
