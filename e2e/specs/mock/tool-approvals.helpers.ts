@@ -111,18 +111,17 @@ export async function waitForApprovalTool(page: Page) {
   ).toEqual(expect.arrayContaining([expect.objectContaining({ pluginKey: APPROVAL_TOOL_ID })]));
 }
 
-export async function createAndSelectApprovalAgent(page: Page): Promise<string> {
+export async function createApprovalAgent(page: Page): Promise<AgentDetail> {
   await page.goto(NEW_CHAT_PATH, { timeout: 10000 });
   await waitForApprovalTool(page);
 
   const token = await getAccessToken(page);
-  const agentName = uniqueAgentName('E2E Tool Approval Agent');
-  const agent = await requestJson<AgentDetail>(page, {
+  return requestJson<AgentDetail>(page, {
     path: '/api/agents',
     token,
     method: 'POST',
     body: {
-      name: agentName,
+      name: uniqueAgentName('E2E Tool Approval Agent'),
       description: DESCRIPTION,
       instructions: 'Use the requested approval probe tools and report their results.',
       provider: MOCK_ENDPOINTS[0].label,
@@ -130,11 +129,14 @@ export async function createAndSelectApprovalAgent(page: Page): Promise<string> 
       tools: [MCP_SERVER_TOOL_ID, APPROVAL_TOOL_ID],
     },
   });
+}
 
+export async function createAndSelectApprovalAgent(page: Page): Promise<string> {
+  const agent = await createApprovalAgent(page);
   const form = await openAgentBuilder(page);
   await form.getByRole('combobox', { name: 'Agent', exact: true }).click();
-  await page.getByRole('option', { name: agentName }).click();
-  await expect(form.getByLabel('Agent name')).toHaveValue(agentName);
+  await page.getByRole('option', { name: agent.name }).click();
+  await expect(form.getByLabel('Agent name')).toHaveValue(agent.name);
   await form.getByRole('button', { name: 'Select Agent' }).click();
   return agent.id;
 }

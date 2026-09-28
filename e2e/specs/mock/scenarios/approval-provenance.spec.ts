@@ -4,11 +4,12 @@ import {
   startApproval,
   submitAndCapture,
   clearApprovalInvocations,
-  createAndSelectApprovalAgent,
+  createApprovalAgent,
   expectApprovalInvocationCount,
   expectCompletedApprovalToolOutput,
 } from '../tool-approvals.helpers';
 import { cleanupAgent } from '../agents.helpers';
+import { NEW_CHAT_PATH } from '../helpers';
 import { withMongo } from '../db';
 
 test.describe('Tool approval provenance', () => {
@@ -24,7 +25,10 @@ test.describe('Tool approval provenance', () => {
     clearApprovalInvocations(originalValue, editedValue);
 
     try {
-      agentId = await createAndSelectApprovalAgent(page);
+      agentId = (await createApprovalAgent(page)).id;
+      await page.goto(`${NEW_CHAT_PATH}?agent_id=${encodeURIComponent(agentId)}`, {
+        timeout: 10000,
+      });
       const card = await startApproval(page, label);
       const conversationId = new URL(page.url()).pathname.split('/').pop();
 
