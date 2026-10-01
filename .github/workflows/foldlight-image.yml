@@ -1,0 +1,87 @@
+# 折光 · fork 自有镜像构建
+# ------------------------------------------------------------
+# 为什么需要它（2026-10-02）：
+# 我们要改**前端**（来源引用卡片之类），而容器里的镜像**没有构建工具链**
+# （client/node_modules 是空壳、全盘找不到 vite）。所以改前端这件事，
+# 卡在"没有一条自己能控制的构建链路"上。
+#
+# 这条工作流把官方那套照搬过来，只换两处：
+#   · 推 **GHCR**（ghcr.io），用仓库自带的 GITHUB_TOKEN —— 不需要 DockerHub 密钥
+#   · 只在 `foldlight/**` 分支和手动触发时跑 —— 不去追上游 dev 分支
+#
+# 官方对应文件：.github/workflows/dev-branch-images.yml + docker-publish.yml
+#   api 镜像 = Dockerfile.multi 的 api-build 目标
+#   dev 镜像 = Dockerfile 的 node 目标（**我们现在跑的就是这个**）
+# 先只构建 dev 镜像：形状和现役的一模一样，换过去风险最小；
+# 生产镜像等这条链路跑顺了再说。
+# ------------------------------------------------------------
+name: Foldlight image
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'foldlight/**'
+    paths:
+      - 'api/**'
+      - 'client/**'
+      - 'config/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'Dockerfile'
+      - 'Dockerfile.multi'
+      - '.dockerignore'
+      - '.github/workflows/foldlight-image.yml'
+      - '!**.md'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: foldlight-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 镜像名**必须全小写** —— ghcr.io 不接受大写，而 GitHub 用户名是 LingYiWu015。
+      # 写死小写，别用 ${{ github.repository_owner }}（那个是大写）。
+      - name: 构建并推送
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: node
+          push: true
+          tags: |
+            ghcr.io/lingyiwu015/foldlight-dev:latest
+            ghcr.io/lingyiwu015/foldlight-dev:${{ github.sha }}
+          build-args: |
+            BUILD_COMMIT=${{ github.sha }}
+            BUILD_BRANCH=${{ github.ref_name }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+          # 缓存：LibreChat 的 npm ci + vite 构建很重，没有缓存每次十几分钟。
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # 把镜像 digest 打出来 —— 部署时要按 digest 钉住，不按 tag
+      # （tag 会被下一次构建覆盖，digest 不会）。
+      - name: 输出 digest
+        run: echo "镜像已推送：ghcr.io/lingyiwu015/foldlight-dev@${{ steps.build.outputs.digest }}"
+        if: always()
